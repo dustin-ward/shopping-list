@@ -46,6 +46,8 @@
   let existingEntryId = $state<string | null>(null);
   let purchasedExpanded = $state(false);
   let addFormOpen = $state(false);
+  let addDetailsOpen = $state(false);
+  let addGroupContextId = $state<string | null>(null);
   let groupOrderEditing = $state(false);
   let collapsedGroupIds = $state<string[]>([]);
 
@@ -304,8 +306,11 @@
     return snapshotCoordinator.refresh(true);
   }
 
-  async function openAddForm(): Promise<void> {
+  async function openAddForm(groupId: string | null = null): Promise<void> {
     addFormOpen = true;
+    addGroupContextId = groupId;
+    addDetailsOpen = groupId !== null;
+    if (groupId) addGroupIds = [...new Set([...addGroupIds, groupId])];
     errorMessage = '';
     await tick();
     document.getElementById('new-item-name')?.focus();
@@ -431,6 +436,7 @@
       (item) => normalizeName(item.name) === normalized,
     );
     const nextGroupIds = [...(remembered?.defaultGroupIds ?? [])];
+    if (addGroupContextId) nextGroupIds.push(addGroupContextId);
     const liveGroupIds = new Set(
       snapshot?.groups.map((group) => group.id) ?? [],
     );
@@ -470,6 +476,8 @@
       addQuantity = '';
       addNote = '';
       addGroupIds = [];
+      addGroupContextId = null;
+      addDetailsOpen = false;
       addFormOpen = false;
     }
   }
@@ -973,7 +981,7 @@
             </button>
           </div>
 
-          <details class="item-details">
+          <details class="item-details" bind:open={addDetailsOpen}>
             <summary>Quantity, note, and groups</summary>
             <div class="details-fields">
               <label class="field">
@@ -1048,6 +1056,18 @@
               </div>
               <div class="group-heading-tools">
                 <span class="count">{entrySection.entries.length}</span>
+                {#if entrySection.groupId}
+                  <button
+                    class="add-open-button group-add-button"
+                    type="button"
+                    aria-label={`Add item to ${entrySection.name}`}
+                    title={`Add item to ${entrySection.name}`}
+                    disabled={!canWrite}
+                    onclick={() => openAddForm(entrySection.groupId)}
+                  >
+                    <span aria-hidden="true">+</span>
+                  </button>
+                {/if}
                 {#if entrySection.groupId && groupOrderEditing}
                   <div
                     class="group-order-controls"
