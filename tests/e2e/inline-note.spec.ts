@@ -71,4 +71,28 @@ test('shows item notes inline and expands or collapses long notes', async ({
   await expect(purchasedItem.locator('.entry-note summary')).toHaveText(
     noteText,
   );
+
+  const plainItemName = `Plain item ${suffix}`;
+  await page.getByRole('button', { name: 'Open add item form' }).click();
+  await page.getByLabel('Item name').fill(plainItemName);
+  await page.getByRole('button', { name: 'Add item', exact: true }).click();
+  const plainItem = page
+    .getByRole('region', { name: 'Ungrouped', exact: true })
+    .locator('.entry-card')
+    .filter({ hasText: plainItemName });
+  await expect(plainItem.locator('.entry-note')).toHaveCount(0);
+  const plainPurchaseToggle = plainItem.getByRole('checkbox', {
+    name: `Mark ${plainItemName} as purchased in Ungrouped`,
+  });
+  const plainToggleBox = await plainPurchaseToggle.boundingBox();
+  const plainTitleBox = await plainItem
+    .locator('.entry-title-row')
+    .boundingBox();
+  expect(
+    Math.abs(
+      plainToggleBox!.y +
+        plainToggleBox!.height / 2 -
+        (plainTitleBox!.y + plainTitleBox!.height / 2),
+    ),
+  ).toBeLessThan(2);
 });

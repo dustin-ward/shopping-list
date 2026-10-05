@@ -3,7 +3,6 @@ import { expect, test } from '@playwright/test';
 test('completes a store purchase, undo, clear, and historical lookup', async ({
   page,
 }) => {
-  page.on('dialog', (dialog) => dialog.accept());
   const itemName = `E2E item ${crypto.randomUUID().slice(0, 8)}`;
 
   await page.goto('/');
@@ -55,8 +54,11 @@ test('completes a store purchase, undo, clear, and historical lookup', async ({
       name: `Mark ${itemName} as purchased in E2E Market`,
     })
     .click();
-  await page
-    .getByRole('button', { name: 'Clear 1 purchased', exact: true })
+  await page.getByRole('button', { name: /^Clear \d+ purchased$/ }).click();
+  const clearDialog = page.getByRole('dialog');
+  await expect(clearDialog).toBeVisible();
+  await clearDialog
+    .getByRole('button', { name: /^Clear \d+ purchased$/ })
     .click();
   await expect(
     page.getByRole('checkbox', {

@@ -32,6 +32,10 @@
     groupId: string | null;
     groupName: string;
   };
+  type PendingPurchaseClear = {
+    serverInstanceId: string;
+    entries: { id: string; expectedRevision: number }[];
+  };
   const snapshotCoordinator = new SnapshotCoordinator();
 
   let syncState = $state<SnapshotClientState>(snapshotCoordinator.getState());
@@ -77,8 +81,9 @@
   let renameGroupName = $state('');
   let renameGroupColor = $state(DEFAULT_GROUP_COLOR);
   let pendingRemoval = $state<PendingRemoval | null>(null);
-  let removeDialogElement = $state<HTMLDialogElement | null>(null);
-  let removeCancelButton = $state<HTMLButtonElement | null>(null);
+  let pendingPurchaseClear = $state<PendingPurchaseClear | null>(null);
+  let actionDialogElement = $state<HTMLDialogElement | null>(null);
+  let actionDialogCancelButton = $state<HTMLButtonElement | null>(null);
 
   let historyItems = $state<PurchaseHistoryPage['items']>([]);
   let historyCursor = $state<string | null>(null);
@@ -560,22 +565,28 @@
       groupId,
       groupName,
     };
+    pendingPurchaseClear = null;
+    await openActionDialog();
+  }
+
+  async function openActionDialog(): Promise<void> {
     await tick();
-    if (removeDialogElement && !removeDialogElement.open) {
-      removeDialogElement.showModal();
-      removeCancelButton?.focus();
+    if (actionDialogElement && !actionDialogElement.open) {
+      actionDialogElement.showModal();
+      actionDialogCancelButton?.focus();
     }
   }
 
-  function closeRemoveDialog(): void {
-    if (removeDialogElement?.open) {
-      removeDialogElement.close();
+  function closeActionDialog(): void {
+    if (actionDialogElement?.open) {
+      actionDialogElement.close();
     } else {
       pendingRemoval = null;
+      pendingPurchaseClear = null;
     }
   }
 
-  function handleRemoveDialogCancel(event: Event): void {
+  function handleActionDialogCancel(event: Event): void {
     if (pendingAction) event.preventDefault();
   }
 
@@ -591,7 +602,7 @@
       !entry ||
       !entry.groupIds.includes(request.groupId)
     ) {
-      closeRemoveDialog();
+      closeActionDialog();
       return;
     }
     await mutate(
@@ -607,7 +618,7 @@
       },
       `remove-group:${entry.id}`,
     );
-    closeRemoveDialog();
+    closeActionDialog();
   }
 
   async function removeEntryFromAllGroups(): Promise<void> {
@@ -617,7 +628,7 @@
       (item) => item.id === request?.entryId,
     );
     if (!request || !currentSnapshot || !entry) {
-      closeRemoveDialog();
+      closeActionDialog();
       return;
     }
     await mutate(
@@ -629,7 +640,7 @@
       },
       `cancel:${entry.id}`,
     );
-    closeRemoveDialog();
+    closeActionDialog();
   }
 
   async function purchaseEntry(
@@ -668,27 +679,35 @@
     );
   }
 
-  async function clearPurchased(): Promise<void> {
+  async function requestClearPurchased(): Promise<void> {
     if (!snapshot || purchasedEntries.length === 0) return;
-    if (
-      !window.confirm(
-        `Clear these ${purchasedEntries.length} purchased item(s) from the list? Their purchase history will be kept.`,
-      )
-    ) {
+    pendingRemoval = null;
+    pendingPurchaseClear = {
+      serverInstanceId: snapshot.serverInstanceId,
+      entries: purchasedEntries.map((entry) => ({
+        id: entry.id,
+        expectedRevision: entry.revision,
+      })),
+    };
+    await openActionDialog();
+  }
+
+  async function confirmClearPurchased(): Promise<void> {
+    const request = pendingPurchaseClear;
+    if (!request) {
+      closeActionDialog();
       return;
     }
     await mutate(
       '/api/entries/archive',
       'POST',
       {
-        serverInstanceId: snapshot.serverInstanceId,
-        entries: purchasedEntries.map((entry) => ({
-          id: entry.id,
-          expectedRevision: entry.revision,
-        })),
+        serverInstanceId: request.serverInstanceId,
+        entries: request.entries,
       },
       'clear',
     );
+    closeActionDialog();
   }
 
   function groupNames(groupIds: string[]) {
@@ -1281,7 +1300,10 @@
                           </div>
                         </form>
                       {:else}
-                        <div class="entry-main">
+                        <div
+                          class="entry-main"
+                          class:has-note={Boolean(entry.note)}
+                        >
                           <button
                             class="purchase-toggle"
                             role="checkbox"
@@ -1453,7 +1475,7 @@
               <button
                 class="clear-button"
                 disabled={!canWrite}
-                onclick={clearPurchased}
+                onclick={requestClearPurchased}
               >
                 Clear {purchasedEntries.length} purchased
               </button>
@@ -1745,25 +1767,44 @@
     </button>
   </footer>
 
-  {#if pendingRemoval}
+  {#if pendingRemoval || pendingPurchaseClear}
     <dialog
-      class="remove-dialog"
-      aria-labelledby="remove-dialog-title"
-      aria-describedby="remove-dialog-description"
-      bind:this={removeDialogElement}
-      onclose={() => (pendingRemoval = null)}
-      oncancel={handleRemoveDialogCancel}
+      class="action-dialog"
+      aria-labelledby="action-dialog-title"
+      aria-describedby="action-dialog-description"
+      bind:this={actionDialogElement}
+      onclose={() => {
+        pendingRemoval = null;
+        pendingPurchaseClear = null;
+      }}
+      oncancel={handleActionDialogCancel}
     >
-      <div class="remove-dialog-content">
-        <h2 id="remove-dialog-title">Remove item?</h2>
-        {#if pendingRemoval.groupId}
-          <p id="remove-dialog-description">
-            Remove <strong>{pendingRemoval.itemName}</strong> from
-            <strong>{pendingRemoval.groupName}</strong> only to keep it on the active
-            list (it moves to Ungrouped if it has no other groups), or remove it from
-            the active list entirely.
+      <div class="action-dialog-content">
+        {#if pendingRemoval}
+          <h2 id="action-dialog-title">Remove item?</h2>
+          {#if pendingRemoval.groupId}
+            <p id="action-dialog-description">
+              Remove <strong>{pendingRemoval.itemName}</strong> from
+              <strong>{pendingRemoval.groupName}</strong> only to keep it on the active
+              list (it moves to Ungrouped if it has no other groups), or remove it
+              from the active list entirely.
+            </p>
+          {:else}
+            <p id="action-dialog-description">
+              <strong>{pendingRemoval.itemName}</strong> is ungrouped. Remove it from
+              the active list?
+            </p>
+          {/if}
+        {:else if pendingPurchaseClear}
+          <h2 id="action-dialog-title">Clear purchased items?</h2>
+          <p id="action-dialog-description">
+            Clear {pendingPurchaseClear.entries.length} purchased
+            {pendingPurchaseClear.entries.length === 1 ? 'item' : 'items'}?
+            Purchase history will be kept.
           </p>
-          <div class="remove-dialog-actions">
+        {/if}
+        <div class="action-dialog-actions">
+          {#if pendingRemoval?.groupId}
             <button
               class="secondary-button"
               type="button"
@@ -1784,22 +1825,7 @@
                 ? 'Removing…'
                 : 'Remove from all groups'}
             </button>
-            <button
-              class="quiet-button"
-              type="button"
-              bind:this={removeCancelButton}
-              disabled={pendingAction !== null}
-              onclick={closeRemoveDialog}
-            >
-              Cancel
-            </button>
-          </div>
-        {:else}
-          <p id="remove-dialog-description">
-            <strong>{pendingRemoval.itemName}</strong> is ungrouped. Remove it from
-            the active list?
-          </p>
-          <div class="remove-dialog-actions">
+          {:else if pendingRemoval}
             <button
               class="primary-button remove-all-button"
               type="button"
@@ -1810,17 +1836,28 @@
                 ? 'Removing…'
                 : 'Remove from list'}
             </button>
+          {:else if pendingPurchaseClear}
             <button
-              class="quiet-button"
+              class="primary-button remove-all-button"
               type="button"
-              bind:this={removeCancelButton}
-              disabled={pendingAction !== null}
-              onclick={closeRemoveDialog}
+              disabled={!canWrite}
+              onclick={confirmClearPurchased}
             >
-              Cancel
+              {pendingAction === 'clear'
+                ? 'Clearing…'
+                : `Clear ${pendingPurchaseClear.entries.length} purchased`}
             </button>
-          </div>
-        {/if}
+          {/if}
+          <button
+            class="quiet-button"
+            type="button"
+            bind:this={actionDialogCancelButton}
+            disabled={pendingAction !== null}
+            onclick={closeActionDialog}
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </dialog>
   {/if}
@@ -2046,7 +2083,7 @@
     font-size: 0.92rem;
   }
 
-  .remove-dialog {
+  .action-dialog {
     width: min(28rem, calc(100vw - 2rem));
     max-width: calc(100vw - 2rem);
     max-height: calc(100vh - 2rem);
@@ -2059,51 +2096,51 @@
     box-shadow: 0 14px 40px rgb(0 0 0 / 50%);
   }
 
-  .remove-dialog::backdrop {
+  .action-dialog::backdrop {
     background: rgb(0 0 0 / 68%);
   }
 
-  .remove-dialog-content {
+  .action-dialog-content {
     display: grid;
     gap: 0.75rem;
     padding: 1rem;
   }
 
-  .remove-dialog-content h2,
-  .remove-dialog-content p {
+  .action-dialog-content h2,
+  .action-dialog-content p {
     margin: 0;
   }
 
-  .remove-dialog-content h2 {
+  .action-dialog-content h2 {
     font-size: 1.1rem;
   }
 
-  .remove-dialog-content p {
+  .action-dialog-content p {
     color: var(--text-muted);
     line-height: 1.5;
   }
 
-  .remove-dialog-content strong {
+  .action-dialog-content strong {
     color: var(--text);
   }
 
-  .remove-dialog-actions {
+  .action-dialog-actions {
     display: grid;
     gap: 0.45rem;
   }
 
-  .remove-dialog-actions button {
+  .action-dialog-actions button {
     width: 100%;
     white-space: normal;
   }
 
-  .remove-dialog-actions .remove-all-button {
+  .action-dialog-actions .remove-all-button {
     border-color: var(--danger);
     color: var(--danger);
     background: #342521;
   }
 
-  .remove-dialog-actions .remove-all-button:hover:not(:disabled) {
+  .action-dialog-actions .remove-all-button:hover:not(:disabled) {
     background: #473028;
   }
 
@@ -2543,8 +2580,11 @@
   }
 
   .entry-main {
-    align-items: flex-start;
     gap: 0.65rem;
+  }
+
+  .entry-main.has-note {
+    align-items: flex-start;
   }
 
   .purchased-check,
@@ -3044,7 +3084,6 @@
     }
 
     .entry-main {
-      align-items: flex-start;
       gap: 0.5rem;
     }
 
