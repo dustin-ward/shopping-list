@@ -1,115 +1,138 @@
 # Shared Shopping List
 
-A mobile-first, collaborative shopping list for one household. The application
-is self-hostable with Docker Compose and designed for tailnet-only access.
+A self-hosted, mobile-friendly shopping list for one household. Open the same
+private URL on each device to share one list and keep it in sync.
 
-## Implementation status
+## What it does
 
-The online shopping cycle, SQLite persistence and migrations, revision-guarded
-collaboration, installable PWA shell, read-only offline snapshot, and operational
-backup/restore tooling are implemented. Automated unit, integration, and
-production-mode browser tests are available.
+- Add items with optional quantities and notes.
+- Organize items into groups such as stores or categories; an item can belong to
+  more than one group.
+- Check items off while shopping, undo a purchase, and keep purchase history
+  when clearing completed items.
+- Install the app on a phone's home screen. After loading the list online, the
+  last saved version is available offline in read-only mode.
+- Store the shared list in a SQLite database on your own server.
 
-The GitHub Release workflow is configured to publish to GHCR but has not yet run.
-This environment has no Docker engine, so the image and Compose deployment have
-not been built or started here. Proxmox LXC networking and bind-mount ownership,
-real iOS Safari/Android Chrome behavior, and the production Tailscale topology
-still need deployment/device verification.
+There is no sign-in or per-person access control. Anyone who can reach the app
+can read and change the list, so keep it on a network you trust. Offline mode
+does not queue changes.
 
-## Run locally
+## Run locally with Docker Compose
 
-Prerequisites: Node.js 24 LTS and pnpm 12.9.1.
+You need Git and Docker with Compose v2.
+
+```sh
+git clone https://github.com/dustin-ward/shopping-list.git
+cd shopping-list
+cp .env.example .env
+```
+
+Edit `.env` and set the local browser address:
+
+```dotenv
+CANONICAL_ORIGIN=http://localhost:3000
+PUBLISHED_PORT=3000
+```
+
+On a Linux Docker host, create the persistent folders and let the container's
+non-root user (UID/GID `10001`) write to them:
+
+```sh
+mkdir -p data backups
+sudo chown -R 10001:10001 data backups
+```
+
+Docker Desktop manages file permissions differently; you usually do not need
+the `chown` command there. Start the app:
+
+```sh
+docker compose up --build -d
+docker compose ps
+```
+
+Open <http://localhost:3000>. To stop the container without deleting your list,
+run `docker compose down`. The database stays in `data/` and backups are stored
+in `backups/`.
+
+The local Compose file publishes only on the host's loopback address. Other
+devices cannot connect through the host's LAN address; see the household setup
+below for private remote access.
+
+## Run directly with Node.js
+
+For development without Docker, install Node.js 24 and pnpm 12.9.1. From the
+project directory, install pnpm and dependencies:
 
 ```sh
 npm install --global pnpm@12.9.1
 pnpm install --frozen-lockfile
-cp .env.example .env
 ```
 
-Edit `.env` for local development before starting:
+Set these local values in `.env` (create it from `.env.example` if needed):
 
 ```dotenv
 DATABASE_PATH=./data/shopping-list.sqlite
 CANONICAL_ORIGIN=http://localhost:5173
 PORT=5173
+BACKUP_DIR=./backups
 ```
 
-Then initialize the database and start the Vite development server:
+Initialize the database and start the development server:
 
 ```sh
 pnpm db:migrate
 pnpm dev
 ```
 
-Open <http://localhost:5173>. Production startup applies committed migrations
-and bootstraps the shared list before listening:
+Open <http://localhost:5173>.
+
+## Deploy for your household
+
+Keep the app behind a private network such as Tailscale; do not expose it to the
+public internet. The app has no login, and its production Compose file binds to
+host loopback. The [Operations guide](docs/operations.md) walks through a
+Tailscale Serve deployment, backups, restores, and upgrades.
+
+For a home server, the release workflow builds and publishes a Docker image to
+GitHub Container Registry (GHCR) when a GitHub Release is published. GHCR
+packages are private by default; for a private package, authenticate on the
+server with a GitHub token that has `read:packages` access.
+
+The prebuilt-image deployment needs only `compose.prod.yaml` and an `.env` made
+from `.env.prod.example`; it does not need a source checkout. Set
+`CANONICAL_ORIGIN` to the exact HTTPS URL used by your household and
+`SHOPPING_LIST_IMAGE` to a published tag, for example
+`ghcr.io/dustin-ward/shopping-list:vX.Y.Z`. In the deployment directory, copy
+the example environment file and edit those values:
 
 ```sh
-pnpm build
-pnpm start
+cp .env.prod.example .env
+# Edit CANONICAL_ORIGIN and SHOPPING_LIST_IMAGE in .env.
+docker compose -f compose.prod.yaml pull
+docker compose -f compose.prod.yaml up -d
 ```
 
-## Checks and tests
+See [Operations](docs/operations.md) for how to get the two deployment files,
+configure Tailscale Serve, set directory permissions, and create off-host
+backups. If you are building from a source checkout instead, use
+`docker compose up --build -d`.
+
+## Development checks
 
 ```sh
-pnpm check          # Svelte/TypeScript and service-worker type checks
+pnpm check
 pnpm lint
-pnpm format:check
-pnpm test           # Unit and temporary-SQLite integration tests
-pnpm test:e2e       # Production build plus Playwright browser tests
-pnpm db:check
+pnpm test
+pnpm test:e2e
 ```
 
-Playwright downloads Chromium separately when needed: `pnpm exec playwright
-install chromium`.
+Playwright installs Chromium separately when needed:
+`pnpm exec playwright install chromium`.
 
-## GitHub releases
+## More information
 
-Publishing a GitHub Release runs `.github/workflows/release.yml`. It verifies the
-release with the type checks, lint, unit/integration tests, and production browser
-tests, then builds the Dockerfile for `linux/amd64` and publishes it to GHCR using
-the built-in `GITHUB_TOKEN` (no registry secret is needed in the repository).
-
-For a release tag such as `v1.2.3`, the workflow publishes `v1.2.3`, `1.2.3`,
-`1.2`, and the commit SHA tag. Stable releases also update `latest`. Create and
-publish a GitHub Release to run the workflow; merely pushing a tag does not
-trigger it. GHCR packages are private by default. Make the package public in its
-GitHub package settings if the LXC should pull without credentials.
-
-To deploy a published image, set `SHOPPING_LIST_IMAGE` in `.env` to
-`ghcr.io/<owner>/<repository>:latest`, then pull and recreate the service:
-
-```sh
-docker compose pull
-docker compose up -d --no-build
-```
-
-For a private GHCR package, authenticate on the LXC with a GitHub token that has
-`read:packages` access before pulling. Leaving `SHOPPING_LIST_IMAGE` unset keeps
-the existing local `docker compose up --build` workflow.
-
-## Deployment and backups
-
-The Compose port is published on host loopback only for Tailscale Serve; do not
-change it to `0.0.0.0`. Copy `.env.example`, set `CANONICAL_ORIGIN` to the
-household's HTTPS tailnet hostname, and follow [Operations](docs/operations.md)
-for the LXC setup, volume ownership, updates, backups, and restore procedure.
-
-For a local backup, set `BACKUP_DIR=./backups` in `.env` and run `pnpm db:backup`.
-The script uses SQLite's online backup API and validates the resulting database.
-Keep an off-host copy; the Compose backup directory is on the same machine and
-is not disaster recovery.
-
-## Product and design documents
-
-- [Product specification](docs/product.md)
+- [Product overview and scope](docs/product.md)
 - [Architecture](docs/architecture.md)
-- [Implementation plan and acceptance tests](docs/implementation-plan.md)
-- [Deferred future features](docs/future-features.md)
-- [Deployment and recovery operations](docs/operations.md)
-
-Accounts, public access, offline editing, recommendations, pricing, and receipt
-handling remain out of scope. The last verified current list stays readable on
-this browser until cleared or evicted; offline history and edits are not
-available. Browser storage is best-effort and is not a replacement for a server
-backup.
+- [Deployment, backups, and recovery](docs/operations.md)
+- [Future ideas](docs/future-features.md)
