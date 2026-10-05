@@ -54,10 +54,27 @@ backup directories on local storage, not a network filesystem.
 
 From the application directory inside the LXC:
 
-1. Copy `.env.example` to `.env` and set `CANONICAL_ORIGIN` to the Serve HTTPS
-   hostname. `PUBLISHED_PORT` is the host loopback port; the container listens
-   on port 3000. For a published GHCR image, also set `SHOPPING_LIST_IMAGE` to
-   `ghcr.io/<owner>/<repository>:latest`.
+1. For a GHCR deployment, place `compose.prod.yaml` and `.env.prod.example` in
+   the deployment directory. You can download them from a public GitHub release
+   without cloning the repo:
+
+   ```sh
+   mkdir -p /opt/shopping-list
+   cd /opt/shopping-list
+   wget -O compose.prod.yaml \
+     https://raw.githubusercontent.com/dustin-ward/shopping-list/vX.Y.Z/compose.prod.yaml
+   wget -O .env.prod.example \
+     https://raw.githubusercontent.com/dustin-ward/shopping-list/vX.Y.Z/.env.prod.example
+   cp .env.prod.example .env
+   vi .env
+   ```
+
+   Set `CANONICAL_ORIGIN` to the Serve HTTPS hostname and `SHOPPING_LIST_IMAGE`
+   to the published GHCR tag. `PUBLISHED_PORT` is the host loopback port; the
+   container listens on port 3000. For a private GitHub repo, copy these two
+   files from a trusted workstation instead of downloading unauthenticated raw
+   URLs.
+
 2. Create the bind-mount directories and grant the container's fixed UID/GID
    access:
 
@@ -70,25 +87,20 @@ From the application directory inside the LXC:
    unprivileged LXC may map host IDs differently; verify ownership from inside
    the LXC and from the container before relying on the service.
 
-3. Start one replica. For a local source checkout, build the image locally:
+3. Start one replica. For a GHCR deployment, authenticate first if the package
+   is private, then pull and start the prebuilt image:
+
+   ```sh
+   docker compose -f compose.prod.yaml pull
+   docker compose -f compose.prod.yaml up -d
+   docker compose -f compose.prod.yaml ps
+   docker compose -f compose.prod.yaml logs --tail=100 shopping-list
+   ```
+
+   For a source checkout, use `compose.yaml` to build and start the container:
 
    ```sh
    docker compose up --build -d
-   ```
-
-   To deploy an image published by the GitHub Release workflow, authenticate to
-   GHCR first if the package is private, then pull and start without rebuilding:
-
-   ```sh
-   docker compose pull
-   docker compose up -d --no-build
-   ```
-
-   Check the service:
-
-   ```sh
-   docker compose ps
-   docker compose logs --tail=100 shopping-list
    ```
 
 4. Configure Tailscale Serve as above and verify the app from a tailnet device.
@@ -122,7 +134,7 @@ do not put credentials or tailnet keys in browser-visible settings. Do not commi
 Run a verified online backup from the running container:
 
 ```sh
-docker compose exec -T shopping-list node scripts/backup.mjs
+docker compose -f compose.prod.yaml exec -T shopping-list node scripts/backup.mjs
 ```
 
 The command writes a timestamped `shopping-list-*.sqlite` file under `/backups`
@@ -135,7 +147,7 @@ permissions.
 Schedule it daily with the LXC host's existing scheduler, for example:
 
 ```cron
-30 2 * * * cd /opt/shopping-list && docker compose exec -T shopping-list node scripts/backup.mjs
+30 2 * * * cd /opt/shopping-list && docker compose -f compose.prod.yaml exec -T shopping-list node scripts/backup.mjs
 ```
 
 Choose and periodically test a retention policy. Keep at least one encrypted,
@@ -150,7 +162,7 @@ For a local development database, set `BACKUP_DIR=./backups` and run
 
 ## Restore and upgrades
 
-1. Stop the application: `docker compose stop shopping-list`.
+1. Stop the application: `docker compose -f compose.prod.yaml stop shopping-list`.
 2. Preserve the current data directory before attempting recovery.
 3. Restore a verified backup into a **fresh** data directory. For example, from
    the project directory inside the LXC:
@@ -166,12 +178,14 @@ For a local development database, set `BACKUP_DIR=./backups` and run
    directory ensures there is no `shopping-list.sqlite-wal` or
    `shopping-list.sqlite-shm` from a different database beside the restored file.
 
-4. Start the app with `docker compose up -d` and verify the health check, current
-   list, and purchase history. Startup applies compatible migrations before
-   accepting traffic. A new process instance causes open clients to fetch the
-   authoritative restored snapshot even if its revision is lower than before.
-5. Before an upgrade, create and verify a backup. For a GHCR deployment, pull
-   the selected release and recreate without rebuilding; for a source checkout,
+4. Start the app with `docker compose -f compose.prod.yaml up -d` and verify the
+   health check, current list, and purchase history. Startup applies compatible
+   migrations before accepting traffic. A new process instance causes open
+   clients to fetch the authoritative restored snapshot even if its revision is
+   lower than before.
+5. Before an upgrade, create and verify a backup. For a GHCR deployment, update
+   `SHOPPING_LIST_IMAGE`, then run `docker compose -f compose.prod.yaml pull`
+   and `docker compose -f compose.prod.yaml up -d`. For a source checkout,
    rebuild from the chosen pinned revision. Inspect startup logs. Migrations are
    forward-applied before serving; do not roll back to an older image after an
    incompatible migration without restoring a compatible backup.
@@ -186,7 +200,7 @@ on the actual LXC storage and UID mapping.
 - **Origin/Host rejected:** check that `CANONICAL_ORIGIN` is the exact HTTPS
   browser origin and that Tailscale Serve forwards the original Host. Do not
   work around the check by trusting arbitrary forwarded headers.
-- **Container unhealthy:** inspect `docker compose logs`; startup configuration
+- **Container unhealthy:** inspect `docker compose -f compose.prod.yaml logs`; startup configuration
   errors and migration failures are logged before the app starts listening.
 - **SQLite permission error:** verify `/data` is writable by UID 10001 inside
   the container and that the volume is local storage.
