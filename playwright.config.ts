@@ -8,6 +8,8 @@ const origin = `http://127.0.0.1:${port}`;
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
+  // E2E tests share one server and SQLite database, so mutations must be serialized.
+  workers: 1,
   retries: process.env.CI ? 2 : 0,
   reporter: 'list',
   use: {

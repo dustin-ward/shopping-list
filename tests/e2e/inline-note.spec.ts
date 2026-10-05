@@ -36,7 +36,7 @@ test('shows item notes inline and expands or collapses long notes', async ({
   const collapsedHeight = await noteTextControl.evaluate(
     (element) => element.getBoundingClientRect().height,
   );
-  expect(collapsedHeight).toBeGreaterThanOrEqual(44);
+  expect(collapsedHeight).toBeLessThan(44);
   await noteTextControl.click();
   await expect(note).toHaveAttribute('open', '');
   const expandedHeight = await noteTextControl.evaluate(
@@ -45,6 +45,19 @@ test('shows item notes inline and expands or collapses long notes', async ({
   expect(expandedHeight).toBeGreaterThan(collapsedHeight);
   await noteTextControl.click();
   await expect(note).not.toHaveAttribute('open', '');
+
+  await page.setViewportSize({ width: 900, height: 844 });
+  const purchaseToggle = item.getByRole('checkbox', {
+    name: `Mark ${itemName} as purchased in Ungrouped`,
+  });
+  const toggleBox = await purchaseToggle.boundingBox();
+  const titleBox = await item.locator('.entry-title-row').boundingBox();
+  expect(toggleBox?.width).toBeGreaterThanOrEqual(44);
+  expect(Math.abs(toggleBox!.y - titleBox!.y)).toBeLessThan(2);
+  const visualCheckboxSize = await purchaseToggle.evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element, '::before').width),
+  );
+  expect(visualCheckboxSize).toBeLessThan(30);
 
   await page
     .getByRole('checkbox', {
