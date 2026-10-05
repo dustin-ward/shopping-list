@@ -1208,8 +1208,7 @@
                             </div>
                             {#if entry.note}
                               <details class="entry-note">
-                                <summary>Note</summary>
-                                <p>{entry.note}</p>
+                                <summary>{entry.note}</summary>
                               </details>
                             {/if}
                           </div>
@@ -1316,6 +1315,11 @@
                             >{entry.quantityText}</span
                           >{/if}
                       </div>
+                      {#if entry.note}
+                        <details class="entry-note">
+                          <summary>{entry.note}</summary>
+                        </details>
+                      {/if}
                       {#if entry.purchase?.storeNameSnapshot}
                         <p class="purchase-store">
                           Bought at {entry.purchase.storeNameSnapshot}
@@ -2069,8 +2073,7 @@
     border-top: 1px solid var(--line);
   }
 
-  .item-details summary,
-  .entry-note summary {
+  .item-details summary {
     min-height: 2.5rem;
     align-content: center;
     color: var(--accent);
@@ -2379,16 +2382,48 @@
   }
 
   .entry-note summary {
-    min-height: 1.9rem;
-    font-size: 0.8rem;
-  }
-
-  .entry-note p {
-    margin: 0.1rem 0 0.5rem;
+    display: -webkit-box;
+    min-height: 2.75rem;
+    align-content: center;
+    overflow: hidden;
     color: var(--text-muted);
-    font-size: 0.9rem;
+    font-size: 0.88rem;
+    line-height: 1.4;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+    cursor: pointer;
+    list-style: none;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+
+  .entry-note summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .entry-note[open] summary {
+    display: block;
+    overflow: visible;
+    -webkit-line-clamp: unset;
+    line-clamp: none;
+  }
+
+  .entry-note[open] summary::after {
+    display: block;
+    margin-top: 0.15rem;
+    color: var(--accent);
+    content: 'Show less';
+    font-family: var(--font-display);
+    font-size: 0.78rem;
+    font-weight: 650;
+    letter-spacing: 0.025em;
+    text-transform: uppercase;
+  }
+
+  .entry-note summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
   .entry-actions {
