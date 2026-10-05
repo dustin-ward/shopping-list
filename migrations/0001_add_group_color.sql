@@ -1,0 +1,1 @@
+ALTER TABLE `groups` ADD `color` text DEFAULT '#d6a453' NOT NULL;

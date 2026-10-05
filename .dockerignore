@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+!.env.example
+node_modules
+.svelte-kit
+build
+coverage
+playwright-report
+test-results
+data
+backups
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

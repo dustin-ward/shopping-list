@@ -1,0 +1,15 @@
+node_modules/
+.svelte-kit/
+build/
+coverage/
+playwright-report/
+test-results/
+.env
+.env.*
+!.env.example
+data/
+data-before-restore*/
+backups/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

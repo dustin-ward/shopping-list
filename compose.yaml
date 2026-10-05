@@ -1,0 +1,35 @@
+services:
+  shopping-list:
+    build: .
+    image: ${SHOPPING_LIST_IMAGE:-shopping-list:local}
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      SHUTDOWN_TIMEOUT: '20'
+      DATABASE_PATH: /data/shopping-list.sqlite
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      BACKUP_DIR: /backups
+      CANONICAL_ORIGIN: ${CANONICAL_ORIGIN:?Set_CANONICAL_ORIGIN_in_.env}
+    ports:
+      - target: 3000
+        published: ${PUBLISHED_PORT:-3000}
+        host_ip: 127.0.0.1
+        protocol: tcp
+    volumes:
+      - ./data:/data
+      - ./backups:/backups
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "const http = require('node:http'); const req = http.get({ hostname: '127.0.0.1', port: 3000, path: '/healthz', headers: { host: new URL(process.env.CANONICAL_ORIGIN).host } }, (res) => { res.resume(); if (res.statusCode !== 200) process.exitCode = 1; }); req.on('error', () => process.exit(1));"
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
