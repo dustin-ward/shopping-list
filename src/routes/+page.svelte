@@ -26,6 +26,12 @@
     color: string;
     entries: Snapshot['entries'];
   };
+  type PendingRemoval = {
+    entryId: string;
+    itemName: string;
+    groupId: string | null;
+    groupName: string;
+  };
   const snapshotCoordinator = new SnapshotCoordinator();
 
   let syncState = $state<SnapshotClientState>(snapshotCoordinator.getState());
@@ -55,6 +61,7 @@
   let addQuantity = $state('');
   let addNote = $state('');
   let addGroupIds = $state<string[]>([]);
+  let addGroupsTouched = $state(false);
 
   let editingEntryId = $state<string | null>(null);
   let editingEntryGroupId = $state<string | null>(null);
@@ -69,6 +76,9 @@
   let editingGroupId = $state<string | null>(null);
   let renameGroupName = $state('');
   let renameGroupColor = $state(DEFAULT_GROUP_COLOR);
+  let pendingRemoval = $state<PendingRemoval | null>(null);
+  let removeDialogElement = $state<HTMLDialogElement | null>(null);
+  let removeCancelButton = $state<HTMLButtonElement | null>(null);
 
   let historyItems = $state<PurchaseHistoryPage['items']>([]);
   let historyCursor = $state<string | null>(null);
@@ -91,6 +101,8 @@
       addName.trim() ||
       addQuantity ||
       addNote ||
+      addGroupsTouched ||
+      addGroupContextId ||
       editingEntryId ||
       newGroupName.trim() ||
       editingGroupId,
@@ -306,11 +318,13 @@
     return snapshotCoordinator.refresh(true);
   }
 
-  async function openAddForm(groupId: string | null = null): Promise<void> {
+  async function openAddForm(groupId?: string): Promise<void> {
     addFormOpen = true;
-    addGroupContextId = groupId;
-    addDetailsOpen = groupId !== null;
-    if (groupId) addGroupIds = [...new Set([...addGroupIds, groupId])];
+    if (groupId) {
+      addGroupContextId = groupId;
+      addDetailsOpen = true;
+      addGroupIds = [...new Set([...addGroupIds, groupId])];
+    }
     errorMessage = '';
     await tick();
     document.getElementById('new-item-name')?.focus();
@@ -431,15 +445,19 @@
 
   function setAddName(value: string): void {
     addName = value;
+    const liveGroupIds = new Set(
+      snapshot?.groups.map((group) => group.id) ?? [],
+    );
+    if (addGroupsTouched) {
+      addGroupIds = addGroupIds.filter((id) => liveGroupIds.has(id));
+      return;
+    }
     const normalized = normalizeName(value);
     const remembered = snapshot?.catalogItems.find(
       (item) => normalizeName(item.name) === normalized,
     );
     const nextGroupIds = [...(remembered?.defaultGroupIds ?? [])];
     if (addGroupContextId) nextGroupIds.push(addGroupContextId);
-    const liveGroupIds = new Set(
-      snapshot?.groups.map((group) => group.id) ?? [],
-    );
     addGroupIds = [...new Set(nextGroupIds)].filter((id) =>
       liveGroupIds.has(id),
     );
@@ -449,6 +467,11 @@
     return ids.includes(groupId)
       ? ids.filter((id) => id !== groupId)
       : [...ids, groupId];
+  }
+
+  function toggleAddGroup(groupId: string): void {
+    addGroupIds = toggleGroup(addGroupIds, groupId);
+    addGroupsTouched = true;
   }
 
   function toggleGroupCollapsed(sectionId: string): void {
@@ -476,6 +499,7 @@
       addQuantity = '';
       addNote = '';
       addGroupIds = [];
+      addGroupsTouched = false;
       addGroupContextId = null;
       addDetailsOpen = false;
       addFormOpen = false;
@@ -522,20 +546,90 @@
     }
   }
 
-  async function removeEntry(entryId: string): Promise<void> {
+  async function requestRemoveEntry(
+    entryId: string,
+    groupId: string | null,
+    groupName: string,
+  ): Promise<void> {
     if (!snapshot) return;
     const entry = snapshot.entries.find((item) => item.id === entryId);
-    if (!entry || !window.confirm(`Remove ${entry.name} from the active list?`))
+    if (!entry) return;
+    pendingRemoval = {
+      entryId,
+      itemName: entry.name,
+      groupId,
+      groupName,
+    };
+    await tick();
+    if (removeDialogElement && !removeDialogElement.open) {
+      removeDialogElement.showModal();
+      removeCancelButton?.focus();
+    }
+  }
+
+  function closeRemoveDialog(): void {
+    if (removeDialogElement?.open) {
+      removeDialogElement.close();
+    } else {
+      pendingRemoval = null;
+    }
+  }
+
+  function handleRemoveDialogCancel(event: Event): void {
+    if (pendingAction) event.preventDefault();
+  }
+
+  async function removeEntryFromGroup(): Promise<void> {
+    const request = pendingRemoval;
+    const currentSnapshot = snapshot;
+    const entry = currentSnapshot?.entries.find(
+      (item) => item.id === request?.entryId,
+    );
+    if (
+      !request?.groupId ||
+      !currentSnapshot ||
+      !entry ||
+      !entry.groupIds.includes(request.groupId)
+    ) {
+      closeRemoveDialog();
       return;
+    }
     await mutate(
-      `/api/entries/${entryId}/cancel`,
+      `/api/entries/${entry.id}`,
+      'PATCH',
+      {
+        serverInstanceId: currentSnapshot.serverInstanceId,
+        expectedRevision: entry.revision,
+        name: entry.name,
+        quantityText: entry.quantityText,
+        note: entry.note,
+        groupIds: entry.groupIds.filter((id) => id !== request.groupId),
+      },
+      `remove-group:${entry.id}`,
+    );
+    closeRemoveDialog();
+  }
+
+  async function removeEntryFromAllGroups(): Promise<void> {
+    const request = pendingRemoval;
+    const currentSnapshot = snapshot;
+    const entry = currentSnapshot?.entries.find(
+      (item) => item.id === request?.entryId,
+    );
+    if (!request || !currentSnapshot || !entry) {
+      closeRemoveDialog();
+      return;
+    }
+    await mutate(
+      `/api/entries/${entry.id}/cancel`,
       'POST',
       {
-        serverInstanceId: snapshot.serverInstanceId,
+        serverInstanceId: currentSnapshot.serverInstanceId,
         expectedRevision: entry.revision,
       },
-      `cancel:${entryId}`,
+      `cancel:${entry.id}`,
     );
+    closeRemoveDialog();
   }
 
   async function purchaseEntry(
@@ -1011,8 +1105,7 @@
                         <input
                           type="checkbox"
                           checked={addGroupIds.includes(group.id)}
-                          onchange={() =>
-                            (addGroupIds = toggleGroup(addGroupIds, group.id))}
+                          onchange={() => toggleAddGroup(group.id)}
                           disabled={!canWrite}
                         />
                         <span>{group.name}</span>
@@ -1063,7 +1156,8 @@
                     aria-label={`Add item to ${entrySection.name}`}
                     title={`Add item to ${entrySection.name}`}
                     disabled={!canWrite}
-                    onclick={() => openAddForm(entrySection.groupId)}
+                    onclick={() =>
+                      openAddForm(entrySection.groupId ?? undefined)}
                   >
                     <span aria-hidden="true">+</span>
                   </button>
@@ -1242,7 +1336,12 @@
                               aria-label={`Remove ${entry.name}`}
                               title={`Remove ${entry.name}`}
                               disabled={!canWrite}
-                              onclick={() => removeEntry(entry.id)}
+                              onclick={() =>
+                                requestRemoveEntry(
+                                  entry.id,
+                                  entrySection.groupId,
+                                  entrySection.name,
+                                )}
                             >
                               <svg
                                 class="entry-action-icon"
@@ -1645,6 +1744,86 @@
       {clearingDeviceData ? 'Clearing…' : 'Clear this device’s saved data'}
     </button>
   </footer>
+
+  {#if pendingRemoval}
+    <dialog
+      class="remove-dialog"
+      aria-labelledby="remove-dialog-title"
+      aria-describedby="remove-dialog-description"
+      bind:this={removeDialogElement}
+      onclose={() => (pendingRemoval = null)}
+      oncancel={handleRemoveDialogCancel}
+    >
+      <div class="remove-dialog-content">
+        <h2 id="remove-dialog-title">Remove item?</h2>
+        {#if pendingRemoval.groupId}
+          <p id="remove-dialog-description">
+            Remove <strong>{pendingRemoval.itemName}</strong> from
+            <strong>{pendingRemoval.groupName}</strong> only to keep it on the active
+            list (it moves to Ungrouped if it has no other groups), or remove it from
+            the active list entirely.
+          </p>
+          <div class="remove-dialog-actions">
+            <button
+              class="secondary-button"
+              type="button"
+              disabled={!canWrite}
+              onclick={removeEntryFromGroup}
+            >
+              {pendingAction === `remove-group:${pendingRemoval.entryId}`
+                ? 'Removing…'
+                : `Remove from ${pendingRemoval.groupName} only`}
+            </button>
+            <button
+              class="primary-button remove-all-button"
+              type="button"
+              disabled={!canWrite}
+              onclick={removeEntryFromAllGroups}
+            >
+              {pendingAction === `cancel:${pendingRemoval.entryId}`
+                ? 'Removing…'
+                : 'Remove from all groups'}
+            </button>
+            <button
+              class="quiet-button"
+              type="button"
+              bind:this={removeCancelButton}
+              disabled={pendingAction !== null}
+              onclick={closeRemoveDialog}
+            >
+              Cancel
+            </button>
+          </div>
+        {:else}
+          <p id="remove-dialog-description">
+            <strong>{pendingRemoval.itemName}</strong> is ungrouped. Remove it from
+            the active list?
+          </p>
+          <div class="remove-dialog-actions">
+            <button
+              class="primary-button remove-all-button"
+              type="button"
+              disabled={!canWrite}
+              onclick={removeEntryFromAllGroups}
+            >
+              {pendingAction === `cancel:${pendingRemoval.entryId}`
+                ? 'Removing…'
+                : 'Remove from list'}
+            </button>
+            <button
+              class="quiet-button"
+              type="button"
+              bind:this={removeCancelButton}
+              disabled={pendingAction !== null}
+              onclick={closeRemoveDialog}
+            >
+              Cancel
+            </button>
+          </div>
+        {/if}
+      </div>
+    </dialog>
+  {/if}
 </main>
 
 <style>
@@ -1865,6 +2044,67 @@
     border-radius: 2px;
     background: var(--surface);
     font-size: 0.92rem;
+  }
+
+  .remove-dialog {
+    width: min(28rem, calc(100vw - 2rem));
+    max-width: calc(100vw - 2rem);
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    padding: 0;
+    border: 1px solid var(--line-bright);
+    border-radius: 2px;
+    color: var(--text);
+    background: var(--surface-raised);
+    box-shadow: 0 14px 40px rgb(0 0 0 / 50%);
+  }
+
+  .remove-dialog::backdrop {
+    background: rgb(0 0 0 / 68%);
+  }
+
+  .remove-dialog-content {
+    display: grid;
+    gap: 0.75rem;
+    padding: 1rem;
+  }
+
+  .remove-dialog-content h2,
+  .remove-dialog-content p {
+    margin: 0;
+  }
+
+  .remove-dialog-content h2 {
+    font-size: 1.1rem;
+  }
+
+  .remove-dialog-content p {
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  .remove-dialog-content strong {
+    color: var(--text);
+  }
+
+  .remove-dialog-actions {
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  .remove-dialog-actions button {
+    width: 100%;
+    white-space: normal;
+  }
+
+  .remove-dialog-actions .remove-all-button {
+    border-color: var(--danger);
+    color: var(--danger);
+    background: #342521;
+  }
+
+  .remove-dialog-actions .remove-all-button:hover:not(:disabled) {
+    background: #473028;
   }
 
   .error-message {
@@ -2128,8 +2368,8 @@
   }
 
   .choice input {
-    width: 1.1rem;
-    height: 1.1rem;
+    width: 1rem;
+    height: 1rem;
     accent-color: var(--accent);
   }
 
@@ -2293,33 +2533,65 @@
     list-style: none;
   }
 
+  .entry-list {
+    gap: 0.45rem;
+  }
+
   .entry-card {
-    padding: 0.65rem 0.8rem;
+    padding: 0.45rem 0.65rem;
     border-color: #454e47;
   }
 
   .entry-main {
+    align-items: flex-start;
     gap: 0.65rem;
   }
 
-  .purchase-toggle,
   .purchased-check,
   .history-check {
+    display: grid;
+    width: 1.75rem;
+    min-width: 1.75rem;
+    aspect-ratio: 1;
+    place-items: center;
+    border: 1px solid var(--line-bright);
+    border-radius: 2px;
+    color: var(--signal-green);
+    background: var(--surface-inset);
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 16%);
+    font-size: 0.95rem;
+    font-weight: 750;
+  }
+
+  .purchase-toggle {
     display: grid;
     width: 2.75rem;
     min-width: 2.75rem;
     aspect-ratio: 1;
     place-items: center;
-    border: 1px solid var(--line-bright);
+    padding: 0;
+    border: 0;
     border-radius: 2px;
     color: var(--accent);
-    background: var(--surface-inset);
-    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 16%);
-    font-size: 1.2rem;
+    background: transparent;
+    font-size: 1rem;
     font-weight: 750;
   }
 
+  .purchase-toggle::before {
+    grid-area: 1 / 1;
+    width: 1.35rem;
+    aspect-ratio: 1;
+    border: 1px solid var(--line-bright);
+    border-radius: 2px;
+    background: var(--surface-inset);
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 16%);
+    content: '';
+  }
+
   .purchase-toggle span {
+    z-index: 1;
+    grid-area: 1 / 1;
     opacity: 0;
   }
 
@@ -2328,7 +2600,7 @@
     opacity: 1;
   }
 
-  .purchase-toggle:hover:not(:disabled) {
+  .purchase-toggle:hover:not(:disabled)::before {
     border-color: var(--accent);
     background: var(--accent-soft);
   }
@@ -2378,17 +2650,15 @@
   }
 
   .entry-note {
-    margin-top: 0.2rem;
+    margin-top: 0.1rem;
   }
 
   .entry-note summary {
     display: -webkit-box;
-    min-height: 2.75rem;
-    align-content: center;
     overflow: hidden;
     color: var(--text-muted);
     font-size: 0.88rem;
-    line-height: 1.4;
+    line-height: 1.3;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     cursor: pointer;
@@ -2515,7 +2785,7 @@
 
   .purchased-card {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.7rem;
   }
 
@@ -2524,6 +2794,10 @@
     border-color: var(--line-bright);
     color: var(--signal-green);
     background: var(--surface-inset);
+  }
+
+  .purchased-check {
+    margin-top: 0.1rem;
   }
 
   .purchase-store {
@@ -2762,7 +3036,7 @@
     }
 
     .entry-card {
-      padding: 0.6rem;
+      padding: 0.45rem 0.55rem;
     }
 
     .group-list-section {
