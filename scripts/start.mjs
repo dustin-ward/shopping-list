@@ -31,6 +31,9 @@ async function start() {
         PORT: String(config.port),
         ORIGIN: config.canonicalOrigin,
         SERVER_INSTANCE_ID: randomUUID(),
+        // adapter-node defaults to 512 KB, which rejects receipt uploads before
+        // hooks run; the route still caps images at 10 MB itself.
+        BODY_SIZE_LIMIT: process.env.BODY_SIZE_LIMIT ?? '12M',
       },
     },
   );

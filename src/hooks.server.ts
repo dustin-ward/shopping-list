@@ -5,6 +5,10 @@ import { getConfig } from './lib/server/config.js';
 
 const unsafeMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 
+// The receipt upload is multipart/form-data, so it is narrowly exempted from the
+// JSON content-type gate; the origin (CSRF) check below still applies to it.
+const receiptUploadPath = '/api/receipts';
+
 export const handle: Handle = async ({ event, resolve }) => {
   // Prerendering creates the static shell without runtime deployment settings.
   if (building) return resolve(event);
@@ -26,19 +30,24 @@ export const handle: Handle = async ({ event, resolve }) => {
     event.url.pathname.startsWith('/api/') &&
     unsafeMethods.has(event.request.method)
   ) {
-    const contentType = event.request.headers
-      .get('content-type')
-      ?.split(';', 1)[0]
-      .trim()
-      .toLowerCase();
-    if (contentType !== 'application/json') {
-      return apiErrorResponse(
-        new AppError(
-          415,
-          'UNSUPPORTED_MEDIA_TYPE',
-          'Send this request as JSON.',
-        ),
-      );
+    const isReceiptUpload =
+      event.request.method === 'POST' &&
+      event.url.pathname === receiptUploadPath;
+    if (!isReceiptUpload) {
+      const contentType = event.request.headers
+        .get('content-type')
+        ?.split(';', 1)[0]
+        .trim()
+        .toLowerCase();
+      if (contentType !== 'application/json') {
+        return apiErrorResponse(
+          new AppError(
+            415,
+            'UNSUPPORTED_MEDIA_TYPE',
+            'Send this request as JSON.',
+          ),
+        );
+      }
     }
     if (event.request.headers.get('origin') !== config.canonicalOrigin) {
       return apiErrorResponse(

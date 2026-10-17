@@ -15,6 +15,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       BACKUP_DIR: /backups
       CANONICAL_ORIGIN: ${CANONICAL_ORIGIN:?Set_CANONICAL_ORIGIN_in_.env}
+      BODY_SIZE_LIMIT: '12M'
     ports:
       - target: 3000
         published: ${PUBLISHED_PORT:-3000}
