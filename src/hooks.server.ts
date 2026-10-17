@@ -1,9 +1,17 @@
 import { building } from '$app/env';
-import type { Handle } from '@sveltejs/kit/hooks';
+import type { Handle, ServerInit } from '@sveltejs/kit/hooks';
 import { AppError, apiErrorResponse } from './lib/server/errors';
 import { getConfig } from './lib/server/config.js';
+import { startReceiptWorker } from './lib/server/receipts/worker-loop';
 
 const unsafeMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
+
+// Runs once per server process: sweep interrupted receipts and start draining
+// the queue. It is a no-op with RECEIPT_OCR_URL unset (the feature is off).
+export const init: ServerInit = () => {
+  if (building) return;
+  startReceiptWorker();
+};
 
 // The receipt upload is multipart/form-data, so it is narrowly exempted from the
 // JSON content-type gate; the origin (CSRF) check below still applies to it.
