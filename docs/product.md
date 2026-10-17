@@ -31,6 +31,19 @@ one-handed use in a store, flexible names, and minimal administration.
 - Numeric units, unit conversion, item synonyms, or catalog merging.
 - Native mobile apps, cloud hosting, or public-internet access.
 
+The MVP list above is unchanged — none of it is in the MVP. One deferral,
+however, now has an approved post-MVP direction: **receipt scanning** — the
+capture layer defined in `GLOSSARY.md` (Receipt, Receipt line, Parked row,
+Unknown line), where the household photographs a receipt, reviews its lines, and
+records what was bought, where, and for how much. It is the sanctioned next
+feature, designed in `docs/receipt-scanner-plan.html` and recorded in
+`docs/adr/0001-capture-first-retention.md`,
+`docs/adr/0002-ocr-as-optional-sidecar.md`, and
+`docs/adr/0003-alias-and-unknown-line-model.md`. It ships only after the
+checklist MVP is complete and validated, and it stays separate from purchase
+history: receipts never auto-create purchase rows. Until it ships, the MVP
+statements above are the whole product scope.
+
 ## 2. Core concepts
 
 | Concept | Meaning | Example |
