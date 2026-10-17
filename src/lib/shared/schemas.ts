@@ -196,6 +196,92 @@ export const purchaseHistoryPageSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 
+export const receiptStatusSchema = z.enum([
+  'pending',
+  'processing',
+  'review',
+  'committed',
+  'discarded',
+  'failed',
+]);
+
+export const receiptQuantityUnitSchema = z.enum([
+  'lb',
+  'kg',
+  'oz',
+  'g',
+  'l',
+  'ml',
+  'ea',
+]);
+
+export const receiptReviewStateSchema = z.enum([
+  'unreviewed',
+  'bound',
+  'new',
+  'unknown',
+  'skipped',
+]);
+
+/**
+ * One row of the Receipts tab list. Money stays in minor units; `currency` is
+ * only a display hint, never a per-receipt conversion.
+ */
+export const receiptListItemSchema = z.object({
+  id: uuidSchema,
+  status: receiptStatusSchema,
+  createdAt: z.string(),
+  capturedAt: z.string().nullable(),
+  currency: z.string().nullable(),
+  totalMinor: z.number().int().nullable(),
+  storeGroupId: uuidSchema.nullable(),
+  imageAvailable: z.boolean(),
+  hasUnknowns: z.boolean(),
+  lastError: z.string().nullable(),
+});
+
+export const receiptListPageSchema = z.object({
+  items: z.array(receiptListItemSchema),
+  nextCursor: z.string().nullable(),
+});
+
+export const receiptLineSchema = z.object({
+  id: uuidSchema,
+  lineIndex: z.number().int().min(0),
+  rawText: z.string(),
+  parsedName: z.string().nullable(),
+  quantityReal: z.number().nullable(),
+  quantityText: z.string().nullable(),
+  quantityUnit: receiptQuantityUnitSchema.nullable(),
+  unitPriceMinor: z.number().int().nullable(),
+  totalPriceMinor: z.number().int().nullable(),
+  isItemChunk: z.boolean(),
+  confidence: z.number().nullable(),
+  catalogItemId: uuidSchema.nullable(),
+  reviewState: receiptReviewStateSchema,
+  boundVia: z.enum(['auto', 'suggested', 'manual', 'created']).nullable(),
+  boundRank: z.number().int().nullable(),
+});
+
+export const receiptDetailSchema = receiptListItemSchema.extend({
+  updatedAt: z.string(),
+  processedAt: z.string().nullable(),
+  committedAt: z.string().nullable(),
+  subtotalMinor: z.number().int().nullable(),
+  taxMinor: z.number().int().nullable(),
+  parseVersion: z.number().int(),
+  attempts: z.number().int(),
+  ocrWarnings: z.string().nullable(),
+  /** Raw OCR line text joined with newlines; null until the receipt is processed. */
+  ocrText: z.string().nullable(),
+  lines: z.array(receiptLineSchema),
+});
+
+export const receiptCapabilitiesSchema = z.object({
+  enabled: z.boolean(),
+  currency: z.string(),
+});
+
 export type AddEntryInput = z.infer<typeof addEntrySchema>;
 export type EditEntryInput = z.infer<typeof editEntrySchema>;
 export type PurchaseEntryInput = z.infer<typeof purchaseEntrySchema>;
@@ -206,3 +292,11 @@ export type RenameGroupInput = z.infer<typeof renameGroupSchema>;
 export type ReorderGroupsInput = z.infer<typeof reorderGroupsSchema>;
 export type Snapshot = z.infer<typeof snapshotSchema>;
 export type PurchaseHistoryPage = z.infer<typeof purchaseHistoryPageSchema>;
+export type ReceiptStatus = z.infer<typeof receiptStatusSchema>;
+export type ReceiptQuantityUnit = z.infer<typeof receiptQuantityUnitSchema>;
+export type ReceiptReviewState = z.infer<typeof receiptReviewStateSchema>;
+export type ReceiptListItem = z.infer<typeof receiptListItemSchema>;
+export type ReceiptListPage = z.infer<typeof receiptListPageSchema>;
+export type ReceiptLine = z.infer<typeof receiptLineSchema>;
+export type ReceiptDetail = z.infer<typeof receiptDetailSchema>;
+export type ReceiptCapabilities = z.infer<typeof receiptCapabilitiesSchema>;

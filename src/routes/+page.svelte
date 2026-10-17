@@ -10,14 +10,16 @@
     loadOfflineSnapshot,
     saveOfflineSnapshot,
   } from '../lib/client/offline';
+  import ReceiptsTab from '../lib/components/receipts/ReceiptsTab.svelte';
   import { normalizeName } from '../lib/shared/normalize';
   import {
     DEFAULT_GROUP_COLOR,
     type PurchaseHistoryPage,
+    type ReceiptCapabilities,
     type Snapshot,
   } from '../lib/shared/schemas';
 
-  type Screen = 'list' | 'groups' | 'history';
+  type Screen = 'list' | 'groups' | 'history' | 'receipts';
   const UNGROUPED_SECTION_ID = 'ungrouped';
   type ActiveEntrySection = {
     id: string;
@@ -42,6 +44,9 @@
   let snapshot = $derived(syncState.snapshot);
   let screen = $state<Screen>('list');
   let menuOpen = $state(false);
+  // Receipts are a feature-flagged surface: the tab only exists while an OCR
+  // engine is configured, and receipt data itself never enters the snapshot.
+  let receiptsEnabled = $state(false);
   let connectionState = $derived(syncState.status);
   let lastVerifiedAt = $derived(syncState.lastVerifiedAt);
   let refreshing = $derived(syncState.fetching);
@@ -169,6 +174,13 @@
   });
 
   onMount(() => {
+    void requestJson<ReceiptCapabilities>('/api/receipts/capabilities')
+      .then((capabilities) => {
+        receiptsEnabled = capabilities.enabled;
+      })
+      .catch(() => {
+        receiptsEnabled = false;
+      });
     let registration: ServiceWorkerRegistration | null = null;
     const unsubscribe = snapshotCoordinator.subscribe((state) => {
       syncState = state;
@@ -966,6 +978,15 @@
       >
         Purchase history
       </button>
+      {#if receiptsEnabled}
+        <button
+          class:active={screen === 'receipts'}
+          aria-current={screen === 'receipts' ? 'page' : undefined}
+          onclick={() => openScreen('receipts')}
+        >
+          Receipts
+        </button>
+      {/if}
     </nav>
   </div>
 
@@ -1686,6 +1707,8 @@
         </p>
       {/if}
     </section>
+  {:else if screen === 'receipts'}
+    <ReceiptsTab />
   {:else}
     <section class="secondary-screen" aria-labelledby="history-heading">
       <div class="list-heading">

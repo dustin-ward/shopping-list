@@ -4,3 +4,7 @@ build/
 coverage/
 pnpm-lock.yaml
 migrations/meta/
+tests/fixtures/receipts/*.png
+tests/fixtures/receipts/*.jpg
+tests/fixtures/receipts/*.jpeg
+tests/fixtures/receipts/*.webp
