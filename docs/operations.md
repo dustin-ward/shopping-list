@@ -114,24 +114,26 @@ health check verifies the ready endpoint. Run only one replica.
 
 ## Configuration
 
-| Setting                   | Purpose                                                                                               |
-| ------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `DATABASE_PATH`           | SQLite file; Compose uses `/data/shopping-list.sqlite`                                                |
-| `CANONICAL_ORIGIN`        | Exact browser-facing origin, normally the HTTPS Serve hostname                                        |
-| `PORT`                    | Internal Node/adapter-node port; Compose uses `3000`                                                  |
-| `SHUTDOWN_TIMEOUT`        | Maximum adapter-node drain interval in seconds; Compose uses `20`                                     |
-| `LOG_LEVEL`               | Reserved application log level (`info` by default)                                                    |
-| `PUBLISHED_PORT`          | Host loopback port forwarded to container port 3000                                                   |
-| `BACKUP_DIR`              | Backup output directory; Compose mounts `/backups`                                                    |
-| `SHOPPING_LIST_IMAGE`     | Optional image reference; unset builds local `shopping-list:local`                                    |
-| `RECEIPT_CURRENCY`        | ISO 4217 code used for receipt money (`USD` by default); invalid codes fail startup                   |
-| `RECEIPT_OCR_URL`         | OCR sidecar endpoint (`http`/`https`); unset by default, which disables capture and the worker        |
-| `RECEIPT_OCR_MODE`        | `http` (default) or `stub`, which returns a canned fixture without calling the sidecar                |
-| `RECEIPT_OCR_TIMEOUT_MS`  | Per-request OCR timeout in milliseconds (`30000` by default)                                          |
-| `RECEIPT_OCR_TOKEN`       | Optional bearer token sent to the OCR engine when it is not loopback-only                             |
-| `RECEIPT_STORAGE_DIR`     | Retained receipt images under the `/data` volume (`/data/receipts` by default)                        |
-| `RECEIPT_IMAGE_RETENTION` | `keep` (capture-first default), `until_commit`, or `immediate`                                        |
-| `BODY_SIZE_LIMIT`         | adapter-node request body cap; set `12M` at deploy, since the upload route still caps images at 10 MB |
+| Setting                   | Purpose                                                                                                         |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_PATH`           | SQLite file; Compose uses `/data/shopping-list.sqlite`                                                          |
+| `CANONICAL_ORIGIN`        | Exact browser-facing origin, normally the HTTPS Serve hostname                                                  |
+| `PORT`                    | Internal Node/adapter-node port; Compose uses `3000`                                                            |
+| `SHUTDOWN_TIMEOUT`        | Maximum adapter-node drain interval in seconds; Compose uses `20`                                               |
+| `LOG_LEVEL`               | Reserved application log level (`info` by default)                                                              |
+| `PUBLISHED_PORT`          | Host loopback port forwarded to container port 3000                                                             |
+| `BACKUP_DIR`              | Backup output directory; Compose mounts `/backups`                                                              |
+| `SHOPPING_LIST_IMAGE`     | Optional image reference; unset builds local `shopping-list:local`                                              |
+| `RECEIPT_OCR_IMAGE`       | Published OCR sidecar image; unset uses `…/shopping-list-receipt-ocr:latest`, only started by the `ocr` profile |
+| `RECEIPT_CURRENCY`        | ISO 4217 code used for receipt money (`USD` by default); invalid codes fail startup                             |
+| `RECEIPT_OCR_URL`         | OCR sidecar endpoint (`http`/`https`); unset by default, which disables capture and the worker                  |
+| `RECEIPT_OCR_MODE`        | `http` (default) or `stub`, which returns a canned fixture without calling the sidecar                          |
+| `RECEIPT_OCR_TIMEOUT_MS`  | Per-request OCR timeout in milliseconds (`30000` by default)                                                    |
+| `RECEIPT_OCR_TOKEN`       | Optional bearer token sent to the OCR engine when it is not loopback-only                                       |
+| `INDRA_OCR_THREADS`       | Optional OCR sidecar ONNX Runtime inference threads (`4` by default)                                            |
+| `RECEIPT_STORAGE_DIR`     | Retained receipt images under the `/data` volume (`/data/receipts` by default)                                  |
+| `RECEIPT_IMAGE_RETENTION` | `keep` (capture-first default), `until_commit`, or `immediate`                                                  |
+| `BODY_SIZE_LIMIT`         | adapter-node request body cap; set `12M` at deploy, since the upload route still caps images at 10 MB           |
 
 The receipt settings are all optional: with `RECEIPT_OCR_URL` unset the app
 boots and runs exactly as before, and already-collected receipts stay readable.
@@ -142,6 +144,68 @@ module, so an invalid receipt setting fails startup loudly while a missing
 The `.env` file contains deployment configuration, not authentication secrets;
 do not put credentials or tailnet keys in browser-visible settings. Do not commit
 `.env` or SQLite/backup files.
+
+## Receipt OCR sidecar (optional)
+
+Receipt capture needs the `receipt-ocr` sidecar: a small CPU-only Python
+container wrapping Indra OCR. It is stateless — no database, no files, no queue
+of its own — and adds at most one container, started only on request:
+
+- Source checkout (builds `./ocr-sidecar`):
+
+  ```sh
+  docker compose --profile ocr up -d
+  ```
+
+  with `RECEIPT_OCR_URL=http://receipt-ocr:8060/ocr` in `.env`.
+
+- Published image:
+
+  ```sh
+  docker compose -f compose.prod.yaml --profile ocr up -d
+  ```
+
+  with `RECEIPT_OCR_URL=http://receipt-ocr:8060/ocr` in `.env`. Set
+  `RECEIPT_OCR_IMAGE` to the app image name with a `-receipt-ocr` suffix and the
+  same release tag: the release workflow publishes both images with identical
+  tags (tag, semver, `sha-…` and `latest`). Leaving the variable unset falls
+  back to the published `latest` sidecar image, so a deploy without receipt
+  capture never has to set it.
+
+Leaving `RECEIPT_OCR_URL` unset — or not starting the `ocr` profile — disables
+capture and the worker; already-collected receipts stay listable, reviewable and
+committable.
+
+Both compose services cap the sidecar at about 1 GB of memory, give it a
+read-only root filesystem with a 64 MB tmpfs `/tmp`, publish no ports, drop all
+Linux capabilities, and set `no-new-privileges`. The Indra models are baked into
+the image and `HF_HUB_OFFLINE=1` is set, so the container never fetches models at
+start-up; a missing model folder makes it exit instead of reaching the network.
+
+Verify a running sidecar with the bundled smoke check. It calls `/healthz` and
+posts the baked fixture image to `/ocr`, asserting the lines/blocks contract the
+app consumes:
+
+```sh
+docker compose exec -T receipt-ocr python smoke.py
+docker exec <container> python smoke.py            # same check from the host shell
+```
+
+Prove the image needs no network at all:
+
+```sh
+docker run --rm -d --name ocr-offline --network none --read-only \
+  --tmpfs /tmp --memory 1g "$RECEIPT_OCR_IMAGE"
+docker exec ocr-offline python smoke.py
+```
+
+Set `RECEIPT_OCR_TOKEN` to the same value on both containers when the engine
+listens beyond the compose network (deployment mode B in the plan): the app
+sends it as a bearer header, and the sidecar rejects `/ocr` without it. Keep the
+value out of version control. `RECEIPT_OCR_TIMEOUT_MS` (30 s by default) bounds
+each attempt; a down or slow sidecar retries up to three times and then marks the
+receipt `failed` with a visible error, while the app stays healthy. See
+`ocr-sidecar/README.md` for the full contract and image invariants.
 
 ## Backups
 

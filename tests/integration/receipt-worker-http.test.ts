@@ -13,7 +13,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrateAndBootstrap } from '../../src/lib/server/db/lifecycle.js';
 import { openSqliteDatabase } from '../../src/lib/server/db/sqlite.js';
 import { createHttpOcrEngine } from '../../src/lib/server/receipts/ocr-engine';
-import { runReceiptWorkerTick } from '../../src/lib/server/services/receipt-worker';
+import {
+  retryReceipt,
+  runReceiptWorkerTick,
+} from '../../src/lib/server/services/receipt-worker';
 
 type Database = ReturnType<typeof openSqliteDatabase>;
 type Row = Record<string, unknown>;
@@ -200,6 +203,58 @@ describe('worker against a real OCR endpoint', () => {
     expect(receiptRow(id).last_error).toContain(
       'Could not reach the OCR engine',
     );
+  });
+
+  it('fails boundedly when the sidecar rejects the token, then accepts it', async () => {
+    const id = insertPendingReceipt();
+    let requests = 0;
+
+    const url = await startOcrServer((request, response) => {
+      requests += 1;
+      if (request.headers.authorization !== 'Bearer shared-secret') {
+        response.writeHead(401);
+        response.end('a valid bearer token is required');
+        return;
+      }
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end('{"pages":[]}');
+    });
+
+    // A token-protected sidecar rejects the unauthenticated worker three times
+    // and the receipt ends up failed with the reason visible.
+    for (const attempts of [1, 2]) {
+      expect(await tickWith(url)).toMatchObject({
+        outcome: 'retry-scheduled',
+        attempts,
+      });
+    }
+    expect(await tickWith(url)).toMatchObject({
+      outcome: 'failed',
+      attempts: 3,
+    });
+    expect(receiptRow(id)).toMatchObject({
+      status: 'failed',
+      last_error: expect.stringContaining('HTTP 401') as unknown as string,
+    });
+
+    // Manual retry with the shared token completes the same receipt.
+    retryReceipt(id, database);
+    expect(
+      await runReceiptWorkerTick({
+        database,
+        storageDir,
+        engine: createHttpOcrEngine({
+          url,
+          token: 'shared-secret',
+          timeoutMs: 5000,
+        }),
+      }),
+    ).toEqual({ outcome: 'processed', receiptId: id });
+    expect(receiptRow(id)).toMatchObject({
+      status: 'review',
+      last_error: null,
+    });
+    expect(requests).toBe(4);
   });
 
   it('times out a sidecar that never answers', async () => {

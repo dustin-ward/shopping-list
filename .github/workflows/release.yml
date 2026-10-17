@@ -39,6 +39,17 @@ jobs:
       - name: Run unit and integration tests
         run: pnpm test
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install OCR sidecar test dependencies
+        run: pip install -r ocr-sidecar/requirements-dev.txt
+
+      - name: Run OCR sidecar tests
+        run: python -m pytest ocr-sidecar
+
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
 
@@ -47,7 +58,9 @@ jobs:
 
   publish:
     name: Build and publish image
-    needs: verify
+    # Runs after the sidecar: a release tag must never name an app image while
+    # its paired OCR image is missing.
+    needs: [verify, publish-receipt-ocr]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -87,5 +100,52 @@ jobs:
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
+
+  publish-receipt-ocr:
+    name: Build and publish OCR sidecar image
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The same tag rules as the app image above: one release tag names both
+      # images, so a deployment cannot pair mismatched versions.
+      - name: Generate sidecar image tags and labels
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-receipt-ocr
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
+
+      - name: Build and push the OCR sidecar image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./ocr-sidecar
+          file: ./ocr-sidecar/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha,scope=receipt-ocr
+          cache-to: type=gha,mode=max,scope=receipt-ocr

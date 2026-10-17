@@ -1,0 +1,15 @@
+# Runtime dependencies of the receipt-OCR sidecar, pinned exactly: the published
+# image is built from this file, so a rebuild resolves the same versions.
+#
+# indra-ocr is the OCR pipeline (ONNX Runtime, no PyTorch). Its own dependencies
+# are unpinned upstream, so the load-bearing ones are pinned here as well;
+# huggingface_hub is pinned because the Dockerfile uses its `hf` CLI to bake the
+# models into the image at build time.
+fastapi==0.143.3
+uvicorn==0.54.0
+indra-ocr==0.3.2
+huggingface_hub==2.2.0
+numpy==2.5.4
+onnxruntime==1.31.0
+opencv-python-headless==5.0.0.93
+pypdfium2==5.14.0

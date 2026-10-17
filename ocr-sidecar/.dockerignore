@@ -1,0 +1,8 @@
+# The sidecar gets only its sources, the smoke fixture and the pinned
+# requirements; caches and test code stay out of the image build context.
+__pycache__/
+.pytest_cache/
+tests/test_*.py
+*.pyc
+requirements-dev.txt
+pytest.ini
