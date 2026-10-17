@@ -4,6 +4,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -198,6 +199,152 @@ export const purchases = sqliteTable(
       'purchases_store_snapshot_consistency',
       sql`(${table.storeGroupId} IS NULL AND ${table.storeNameSnapshot} IS NULL)
 				OR (${table.storeGroupId} IS NOT NULL AND ${table.storeNameSnapshot} IS NOT NULL)`,
+    ),
+  ],
+);
+
+export const receipts = sqliteTable(
+  'receipts',
+  {
+    id: text('id').primaryKey(),
+    listId: text('list_id')
+      .notNull()
+      .references(() => lists.id),
+    status: text('status')
+      .notNull()
+      .default('pending')
+      .$type<
+        | 'pending'
+        | 'processing'
+        | 'review'
+        | 'committed'
+        | 'discarded'
+        | 'failed'
+      >(),
+    imagePath: text('image_path'),
+    imageBytes: integer('image_bytes'),
+    sha256: text('sha256').notNull(),
+    ocrJson: text('ocr_json'),
+    ocrWarnings: text('ocr_warnings'),
+    currency: text('currency'),
+    subtotalMinor: integer('subtotal_minor'),
+    taxMinor: integer('tax_minor'),
+    totalMinor: integer('total_minor'),
+    capturedAt: text('captured_at'),
+    storeGroupId: text('store_group_id').references(() => groups.id),
+    parseVersion: integer('parse_version').notNull().default(0),
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    processedAt: text('processed_at'),
+    committedAt: text('committed_at'),
+    createdAt: timestamp('created_at'),
+    updatedAt: timestamp('updated_at'),
+  },
+  (table) => [
+    index('receipts_status_work_queue').on(table.status, table.createdAt),
+    index('receipts_list_status').on(
+      table.listId,
+      table.status,
+      table.createdAt,
+    ),
+    check(
+      'receipts_status_check',
+      sql`${table.status} IN ('pending', 'processing', 'review', 'committed', 'discarded', 'failed')`,
+    ),
+    check(
+      'receipts_nonnegative_parse_version',
+      sql`${table.parseVersion} >= 0`,
+    ),
+    check('receipts_nonnegative_attempts', sql`${table.attempts} >= 0`),
+    check(
+      'receipts_committed_requires_store',
+      sql`${table.status} <> 'committed' OR ${table.storeGroupId} IS NOT NULL`,
+    ),
+  ],
+);
+
+export const receiptLines = sqliteTable(
+  'receipt_lines',
+  {
+    id: text('id').primaryKey(),
+    receiptId: text('receipt_id')
+      .notNull()
+      .references(() => receipts.id, { onDelete: 'cascade' }),
+    lineIndex: integer('line_index').notNull(),
+    rawText: text('raw_text').notNull(),
+    parsedName: text('parsed_name'),
+    quantityReal: real('quantity_real'),
+    quantityText: text('quantity_text'),
+    quantityUnit: text('quantity_unit').$type<
+      'lb' | 'kg' | 'oz' | 'g' | 'l' | 'ml' | 'ea'
+    >(),
+    unitPriceMinor: integer('unit_price_minor'),
+    totalPriceMinor: integer('total_price_minor'),
+    isItemChunk: integer('is_item_chunk', { mode: 'boolean' }).notNull(),
+    confidence: real('confidence'),
+    catalogItemId: text('catalog_item_id').references(() => catalogItems.id),
+    reviewState: text('review_state')
+      .notNull()
+      .default('unreviewed')
+      .$type<'unreviewed' | 'bound' | 'new' | 'unknown' | 'skipped'>(),
+    boundVia: text('bound_via').$type<
+      'auto' | 'suggested' | 'manual' | 'created'
+    >(),
+    boundRank: integer('bound_rank'),
+    createdAt: timestamp('created_at'),
+    updatedAt: timestamp('updated_at'),
+  },
+  (table) => [
+    index('receipt_lines_receipt').on(table.receiptId, table.lineIndex),
+    index('receipt_lines_catalog').on(table.catalogItemId),
+    check('receipt_lines_nonnegative_line_index', sql`${table.lineIndex} >= 0`),
+    check(
+      'receipt_lines_quantity_unit_check',
+      sql`${table.quantityUnit} IS NULL OR ${table.quantityUnit} IN ('lb', 'kg', 'oz', 'g', 'l', 'ml', 'ea')`,
+    ),
+    check(
+      'receipt_lines_review_state_check',
+      sql`${table.reviewState} IN ('unreviewed', 'bound', 'new', 'unknown', 'skipped')`,
+    ),
+    check(
+      'receipt_lines_bound_via_check',
+      sql`${table.boundVia} IS NULL OR ${table.boundVia} IN ('auto', 'suggested', 'manual', 'created')`,
+    ),
+    check(
+      'receipt_lines_positive_bound_rank',
+      sql`${table.boundRank} IS NULL OR ${table.boundRank} >= 1`,
+    ),
+  ],
+);
+
+export const itemAliases = sqliteTable(
+  'item_aliases',
+  {
+    id: text('id').primaryKey(),
+    listId: text('list_id')
+      .notNull()
+      .references(() => lists.id),
+    catalogItemId: text('catalog_item_id')
+      .notNull()
+      .references(() => catalogItems.id),
+    aliasText: text('alias_text').notNull(),
+    normalizedAlias: text('normalized_alias').notNull(),
+    source: text('source').notNull().$type<'manual' | 'review' | 'auto'>(),
+    createdByReceiptLineId: text('created_by_receipt_line_id').references(
+      () => receiptLines.id,
+    ),
+    deletedAt: text('deleted_at'),
+    createdAt: timestamp('created_at'),
+    updatedAt: timestamp('updated_at'),
+  },
+  (table) => [
+    uniqueIndex('item_aliases_live_unique')
+      .on(table.listId, table.catalogItemId, table.normalizedAlias)
+      .where(sql`${table.deletedAt} IS NULL`),
+    index('item_aliases_lookup').on(table.listId, table.normalizedAlias),
+    check(
+      'item_aliases_source_check',
+      sql`${table.source} IN ('manual', 'review', 'auto')`,
     ),
   ],
 );

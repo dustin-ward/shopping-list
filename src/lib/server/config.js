@@ -1,6 +1,48 @@
 // @ts-check
 import { z } from 'zod';
 
+const assignedCurrencyCodes = new Set(Intl.supportedValuesOf('currency'));
+
+/** @param {string} protocol */
+const isHttpProtocol = (protocol) => ['http:', 'https:'].includes(protocol);
+
+/**
+ * Treat a blank receipt setting (an empty `.env` line or a blank compose
+ * substitution) as unset, so the documented default applies. Other settings
+ * keep failing loudly on a blank value.
+ *
+ * @param {Record<string, string | undefined>} env
+ * @returns {Record<string, string | undefined>}
+ */
+function withBlankReceiptValuesUnset(env) {
+  return Object.fromEntries(
+    Object.entries(env).map(([key, value]) => [
+      key,
+      key.startsWith('RECEIPT_') && value?.trim() === '' ? undefined : value,
+    ]),
+  );
+}
+
+const receiptCurrencySchema = z
+  .string()
+  .trim()
+  .transform((value) => value.toUpperCase())
+  .refine((value) => assignedCurrencyCodes.has(value), {
+    message: 'must be an assigned ISO 4217 currency code',
+  })
+  .default('USD');
+
+const receiptOcrUrlSchema = z
+  .string()
+  .trim()
+  .url()
+  .refine((value) => isHttpProtocol(new URL(value).protocol), {
+    message: 'must be an HTTP(S) URL',
+  })
+  .optional();
+
+const receiptOcrTokenSchema = z.string().trim().min(1).optional();
+
 const runtimeConfigSchema = z.object({
   DATABASE_PATH: z.string().trim().min(1).default('/data/shopping-list.sqlite'),
   CANONICAL_ORIGIN: z.string().trim().url(),
@@ -8,6 +50,15 @@ const runtimeConfigSchema = z.object({
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace'])
     .default('info'),
+  RECEIPT_CURRENCY: receiptCurrencySchema,
+  RECEIPT_OCR_URL: receiptOcrUrlSchema,
+  RECEIPT_OCR_MODE: z.enum(['http', 'stub']).default('http'),
+  RECEIPT_OCR_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  RECEIPT_OCR_TOKEN: receiptOcrTokenSchema,
+  RECEIPT_STORAGE_DIR: z.string().trim().min(1).default('/data/receipts'),
+  RECEIPT_IMAGE_RETENTION: z
+    .enum(['keep', 'until_commit', 'immediate'])
+    .default('keep'),
 });
 
 /**
@@ -16,6 +67,13 @@ const runtimeConfigSchema = z.object({
  * @property {string} canonicalOrigin
  * @property {number} port
  * @property {'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace'} logLevel
+ * @property {string} receiptCurrency ISO 4217 code used for receipt money
+ * @property {string | undefined} receiptOcrUrl OCR sidecar endpoint; unset disables capture
+ * @property {'http' | 'stub'} receiptOcrMode
+ * @property {number} receiptOcrTimeoutMs
+ * @property {string | undefined} receiptOcrToken
+ * @property {string} receiptStorageDir
+ * @property {'keep' | 'until_commit' | 'immediate'} receiptImageRetention
  */
 
 /**
@@ -23,7 +81,9 @@ const runtimeConfigSchema = z.object({
  * @returns {AppConfig}
  */
 export function readConfig(env = process.env) {
-  const parsed = runtimeConfigSchema.safeParse(env);
+  const parsed = runtimeConfigSchema.safeParse(
+    withBlankReceiptValuesUnset(env),
+  );
   if (!parsed.success) {
     const details = parsed.error.issues
       .map(
@@ -36,7 +96,7 @@ export function readConfig(env = process.env) {
 
   const canonicalUrl = new URL(parsed.data.CANONICAL_ORIGIN);
   if (
-    !['http:', 'https:'].includes(canonicalUrl.protocol) ||
+    !isHttpProtocol(canonicalUrl.protocol) ||
     canonicalUrl.username !== '' ||
     canonicalUrl.password !== '' ||
     canonicalUrl.pathname !== '/' ||
@@ -53,6 +113,13 @@ export function readConfig(env = process.env) {
     canonicalOrigin: canonicalUrl.origin,
     port: parsed.data.PORT,
     logLevel: parsed.data.LOG_LEVEL,
+    receiptCurrency: parsed.data.RECEIPT_CURRENCY,
+    receiptOcrUrl: parsed.data.RECEIPT_OCR_URL,
+    receiptOcrMode: parsed.data.RECEIPT_OCR_MODE,
+    receiptOcrTimeoutMs: parsed.data.RECEIPT_OCR_TIMEOUT_MS,
+    receiptOcrToken: parsed.data.RECEIPT_OCR_TOKEN,
+    receiptStorageDir: parsed.data.RECEIPT_STORAGE_DIR,
+    receiptImageRetention: parsed.data.RECEIPT_IMAGE_RETENTION,
   };
 }
 

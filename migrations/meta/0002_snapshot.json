@@ -1,0 +1,1358 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "9fd3725d-00a5-4603-bf39-853f41287316",
+  "prevId": "9b5690e6-c833-4311-bb27-e4ddf8b15eac",
+  "tables": {
+    "app_state": {
+      "name": "app_state",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "list_id": {
+          "name": "list_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "app_state_list_id_unique": {
+          "name": "app_state_list_id_unique",
+          "columns": [
+            "list_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "app_state_list_id_lists_id_fk": {
+          "name": "app_state_list_id_lists_id_fk",
+          "tableFrom": "app_state",
+          "tableTo": "lists",
+          "columnsFrom": [
+            "list_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "app_state_singleton_id": {
+          "name": "app_state_singleton_id",
+          "value": "\"app_state\".\"id\" = 1"
+        },
+        "app_state_nonnegative_revision": {
+          "name": "app_state_nonnegative_revision",
+          "value": "\"app_state\".\"revision\" >= 0"
+        }
+      }
+    },
+    "catalog_item_groups": {
+      "name": "catalog_item_groups",
+      "columns": {
+        "catalog_item_id": {
+          "name": "catalog_item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "catalog_item_groups_group_index": {
+          "name": "catalog_item_groups_group_index",
+          "columns": [
+            "group_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "catalog_item_groups_catalog_item_id_catalog_items_id_fk": {
+          "name": "catalog_item_groups_catalog_item_id_catalog_items_id_fk",
+          "tableFrom": "catalog_item_groups",
+          "tableTo": "catalog_items",
+          "columnsFrom": [
+            "catalog_item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "catalog_item_groups_group_id_groups_id_fk": {
+          "name": "catalog_item_groups_group_id_groups_id_fk",
+          "tableFrom": "catalog_item_groups",
+          "tableTo": "groups",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "catalog_item_groups_catalog_item_id_group_id_pk": {
+          "columns": [
+            "catalog_item_id",
+            "group_id"
+          ],
+          "name": "catalog_item_groups_catalog_item_id_group_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "catalog_items": {
+      "name": "catalog_items",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "list_id": {
+          "name": "list_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "normalized_name": {
+          "name": "normalized_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "catalog_items_list_normalized_name_unique": {
+          "name": "catalog_items_list_normalized_name_unique",
+          "columns": [
+            "list_id",
+            "normalized_name"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "catalog_items_list_id_lists_id_fk": {
+          "name": "catalog_items_list_id_lists_id_fk",
+          "tableFrom": "catalog_items",
+          "tableTo": "lists",
+          "columnsFrom": [
+            "list_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "entry_groups": {
+      "name": "entry_groups",
+      "columns": {
+        "entry_id": {
+          "name": "entry_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "entry_groups_group_index": {
+          "name": "entry_groups_group_index",
+          "columns": [
+            "group_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "entry_groups_entry_id_list_entries_id_fk": {
+          "name": "entry_groups_entry_id_list_entries_id_fk",
+          "tableFrom": "entry_groups",
+          "tableTo": "list_entries",
+          "columnsFrom": [
+            "entry_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "entry_groups_group_id_groups_id_fk": {
+          "name": "entry_groups_group_id_groups_id_fk",
+          "tableFrom": "entry_groups",
+          "tableTo": "groups",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "entry_groups_entry_id_group_id_pk": {
+          "columns": [
+            "entry_id",
+            "group_id"
+          ],
+          "name": "entry_groups_entry_id_group_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "groups": {
+      "name": "groups",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "list_id": {
+          "name": "list_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "normalized_name": {
+          "name": "normalized_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "color": {
+          "name": "color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'#d6a453'"
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "groups_live_name_unique": {
+          "name": "groups_live_name_unique",
+          "columns": [
+            "list_id",
+            "normalized_name"
+          ],
+          "isUnique": true,
+          "where": "\"groups\".\"archived_at\" IS NULL"
+        },
+        "groups_list_position_index": {
+          "name": "groups_list_position_index",
+          "columns": [
+            "list_id",
+            "position"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "groups_list_id_lists_id_fk": {
+          "name": "groups_list_id_lists_id_fk",
+          "tableFrom": "groups",
+          "tableTo": "lists",
+          "columnsFrom": [
+            "list_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "groups_kind_check": {
+          "name": "groups_kind_check",
+          "value": "\"groups\".\"kind\" IN ('store', 'category')"
+        },
+        "groups_nonnegative_position": {
+          "name": "groups_nonnegative_position",
+          "value": "\"groups\".\"position\" >= 0"
+        },
+        "groups_positive_revision": {
+          "name": "groups_positive_revision",
+          "value": "\"groups\".\"revision\" > 0"
+        }
+      }
+    },
+    "item_aliases": {
+      "name": "item_aliases",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "list_id": {
+          "name": "list_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "catalog_item_id": {
+          "name": "catalog_item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "alias_text": {
+          "name": "alias_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "normalized_alias": {
+          "name": "normalized_alias",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_by_receipt_line_id": {
+          "name": "created_by_receipt_line_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "item_aliases_live_unique": {
+          "name": "item_aliases_live_unique",
+          "columns": [
+            "list_id",
+            "catalog_item_id",
+            "normalized_alias"
+          ],
+          "isUnique": true,
+          "where": "\"item_aliases\".\"deleted_at\" IS NULL"
+        },
+        "item_aliases_lookup": {
+          "name": "item_aliases_lookup",
+          "columns": [
+            "list_id",
+            "normalized_alias"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "item_aliases_list_id_lists_id_fk": {
+          "name": "item_aliases_list_id_lists_id_fk",
+          "tableFrom": "item_aliases",
+          "tableTo": "lists",
+          "columnsFrom": [
+            "list_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "item_aliases_catalog_item_id_catalog_items_id_fk": {
+          "name": "item_aliases_catalog_item_id_catalog_items_id_fk",
+          "tableFrom": "item_aliases",
+          "tableTo": "catalog_items",
+          "columnsFrom": [
+            "catalog_item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "item_aliases_created_by_receipt_line_id_receipt_lines_id_fk": {
+          "name": "item_aliases_created_by_receipt_line_id_receipt_lines_id_fk",
+          "tableFrom": "item_aliases",
+          "tableTo": "receipt_lines",
+          "columnsFrom": [
+            "created_by_receipt_line_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "item_aliases_source_check": {
+          "name": "item_aliases_source_check",
+          "value": "\"item_aliases\".\"source\" IN ('manual', 'review', 'auto')"
+        }
+      }
+    },
+    "list_entries": {
+      "name": "list_entries",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "list_id": {
+          "name": "list_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "catalog_item_id": {
+          "name": "catalog_item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "quantity_text": {
+          "name": "quantity_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "list_entries_one_active_item_unique": {
+          "name": "list_entries_one_active_item_unique",
+          "columns": [
+            "list_id",
+            "catalog_item_id"
+          ],
+          "isUnique": true,
+          "where": "\"list_entries\".\"status\" = 'active' AND \"list_entries\".\"archived_at\" IS NULL"
+        },
+        "list_entries_current_index": {
+          "name": "list_entries_current_index",
+          "columns": [
+            "list_id",
+            "status",
+            "archived_at",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "list_entries_list_id_lists_id_fk": {
+          "name": "list_entries_list_id_lists_id_fk",
+          "tableFrom": "list_entries",
+          "tableTo": "lists",
+          "columnsFrom": [
+            "list_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "list_entries_catalog_item_id_catalog_items_id_fk": {
+          "name": "list_entries_catalog_item_id_catalog_items_id_fk",
+          "tableFrom": "list_entries",
+          "tableTo": "catalog_items",
+          "columnsFrom": [
+            "catalog_item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "list_entries_status_check": {
+          "name": "list_entries_status_check",
+          "value": "\"list_entries\".\"status\" IN ('active', 'purchased', 'cancelled')"
+        },
+        "list_entries_positive_revision": {
+          "name": "list_entries_positive_revision",
+          "value": "\"list_entries\".\"revision\" > 0"
+        },
+        "list_entries_consistent_state": {
+          "name": "list_entries_consistent_state",
+          "value": "(\n\t\t\t\t(\"list_entries\".\"status\" = 'active' AND \"list_entries\".\"completed_at\" IS NULL AND \"list_entries\".\"archived_at\" IS NULL)\n\t\t\t\tOR (\"list_entries\".\"status\" = 'purchased' AND \"list_entries\".\"completed_at\" IS NOT NULL)\n\t\t\t\tOR (\"list_entries\".\"status\" = 'cancelled' AND \"list_entries\".\"completed_at\" IS NULL AND \"list_entries\".\"archived_at\" IS NOT NULL)\n\t\t\t)"
+        }
+      }
+    },
+    "lists": {
+      "name": "lists",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "purchases": {
+      "name": "purchases",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entry_id": {
+          "name": "entry_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "catalog_item_id": {
+          "name": "catalog_item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name_snapshot": {
+          "name": "name_snapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "quantity_snapshot": {
+          "name": "quantity_snapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "note_snapshot": {
+          "name": "note_snapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "purchased_at": {
+          "name": "purchased_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "store_group_id": {
+          "name": "store_group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "store_name_snapshot": {
+          "name": "store_name_snapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "voided_at": {
+          "name": "voided_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "purchases_one_valid_per_entry_unique": {
+          "name": "purchases_one_valid_per_entry_unique",
+          "columns": [
+            "entry_id"
+          ],
+          "isUnique": true,
+          "where": "\"purchases\".\"voided_at\" IS NULL"
+        },
+        "purchases_catalog_item_time_index": {
+          "name": "purchases_catalog_item_time_index",
+          "columns": [
+            "catalog_item_id",
+            "purchased_at"
+          ],
+          "isUnique": false
+        },
+        "purchases_time_index": {
+          "name": "purchases_time_index",
+          "columns": [
+            "purchased_at",
+            "id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "purchases_entry_id_list_entries_id_fk": {
+          "name": "purchases_entry_id_list_entries_id_fk",
+          "tableFrom": "purchases",
+          "tableTo": "list_entries",
+          "columnsFrom": [
+            "entry_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "purchases_catalog_item_id_catalog_items_id_fk": {
+          "name": "purchases_catalog_item_id_catalog_items_id_fk",
+          "tableFrom": "purchases",
+          "tableTo": "catalog_items",
+          "columnsFrom": [
+            "catalog_item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "purchases_store_group_id_groups_id_fk": {
+          "name": "purchases_store_group_id_groups_id_fk",
+          "tableFrom": "purchases",
+          "tableTo": "groups",
+          "columnsFrom": [
+            "store_group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "purchases_store_snapshot_consistency": {
+          "name": "purchases_store_snapshot_consistency",
+          "value": "(\"purchases\".\"store_group_id\" IS NULL AND \"purchases\".\"store_name_snapshot\" IS NULL)\n\t\t\t\tOR (\"purchases\".\"store_group_id\" IS NOT NULL AND \"purchases\".\"store_name_snapshot\" IS NOT NULL)"
+        }
+      }
+    },
+    "receipt_lines": {
+      "name": "receipt_lines",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "receipt_id": {
+          "name": "receipt_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "line_index": {
+          "name": "line_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "raw_text": {
+          "name": "raw_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "parsed_name": {
+          "name": "parsed_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "quantity_real": {
+          "name": "quantity_real",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "quantity_text": {
+          "name": "quantity_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "quantity_unit": {
+          "name": "quantity_unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "unit_price_minor": {
+          "name": "unit_price_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "total_price_minor": {
+          "name": "total_price_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "is_item_chunk": {
+          "name": "is_item_chunk",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "confidence": {
+          "name": "confidence",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "catalog_item_id": {
+          "name": "catalog_item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "review_state": {
+          "name": "review_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'unreviewed'"
+        },
+        "bound_via": {
+          "name": "bound_via",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "bound_rank": {
+          "name": "bound_rank",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "receipt_lines_receipt": {
+          "name": "receipt_lines_receipt",
+          "columns": [
+            "receipt_id",
+            "line_index"
+          ],
+          "isUnique": false
+        },
+        "receipt_lines_catalog": {
+          "name": "receipt_lines_catalog",
+          "columns": [
+            "catalog_item_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "receipt_lines_receipt_id_receipts_id_fk": {
+          "name": "receipt_lines_receipt_id_receipts_id_fk",
+          "tableFrom": "receipt_lines",
+          "tableTo": "receipts",
+          "columnsFrom": [
+            "receipt_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "receipt_lines_catalog_item_id_catalog_items_id_fk": {
+          "name": "receipt_lines_catalog_item_id_catalog_items_id_fk",
+          "tableFrom": "receipt_lines",
+          "tableTo": "catalog_items",
+          "columnsFrom": [
+            "catalog_item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "receipt_lines_nonnegative_line_index": {
+          "name": "receipt_lines_nonnegative_line_index",
+          "value": "\"receipt_lines\".\"line_index\" >= 0"
+        },
+        "receipt_lines_quantity_unit_check": {
+          "name": "receipt_lines_quantity_unit_check",
+          "value": "\"receipt_lines\".\"quantity_unit\" IS NULL OR \"receipt_lines\".\"quantity_unit\" IN ('lb', 'kg', 'oz', 'g', 'l', 'ml', 'ea')"
+        },
+        "receipt_lines_review_state_check": {
+          "name": "receipt_lines_review_state_check",
+          "value": "\"receipt_lines\".\"review_state\" IN ('unreviewed', 'bound', 'new', 'unknown', 'skipped')"
+        },
+        "receipt_lines_bound_via_check": {
+          "name": "receipt_lines_bound_via_check",
+          "value": "\"receipt_lines\".\"bound_via\" IS NULL OR \"receipt_lines\".\"bound_via\" IN ('auto', 'suggested', 'manual', 'created')"
+        },
+        "receipt_lines_positive_bound_rank": {
+          "name": "receipt_lines_positive_bound_rank",
+          "value": "\"receipt_lines\".\"bound_rank\" IS NULL OR \"receipt_lines\".\"bound_rank\" >= 1"
+        }
+      }
+    },
+    "receipts": {
+      "name": "receipts",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "list_id": {
+          "name": "list_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "image_path": {
+          "name": "image_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "image_bytes": {
+          "name": "image_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sha256": {
+          "name": "sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ocr_json": {
+          "name": "ocr_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ocr_warnings": {
+          "name": "ocr_warnings",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "subtotal_minor": {
+          "name": "subtotal_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "tax_minor": {
+          "name": "tax_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "total_minor": {
+          "name": "total_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "captured_at": {
+          "name": "captured_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "store_group_id": {
+          "name": "store_group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "parse_version": {
+          "name": "parse_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "committed_at": {
+          "name": "committed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "receipts_status_work_queue": {
+          "name": "receipts_status_work_queue",
+          "columns": [
+            "status",
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "receipts_list_status": {
+          "name": "receipts_list_status",
+          "columns": [
+            "list_id",
+            "status",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "receipts_list_id_lists_id_fk": {
+          "name": "receipts_list_id_lists_id_fk",
+          "tableFrom": "receipts",
+          "tableTo": "lists",
+          "columnsFrom": [
+            "list_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "receipts_store_group_id_groups_id_fk": {
+          "name": "receipts_store_group_id_groups_id_fk",
+          "tableFrom": "receipts",
+          "tableTo": "groups",
+          "columnsFrom": [
+            "store_group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "receipts_status_check": {
+          "name": "receipts_status_check",
+          "value": "\"receipts\".\"status\" IN ('pending', 'processing', 'review', 'committed', 'discarded', 'failed')"
+        },
+        "receipts_nonnegative_parse_version": {
+          "name": "receipts_nonnegative_parse_version",
+          "value": "\"receipts\".\"parse_version\" >= 0"
+        },
+        "receipts_nonnegative_attempts": {
+          "name": "receipts_nonnegative_attempts",
+          "value": "\"receipts\".\"attempts\" >= 0"
+        },
+        "receipts_committed_requires_store": {
+          "name": "receipts_committed_requires_store",
+          "value": "\"receipts\".\"status\" <> 'committed' OR \"receipts\".\"store_group_id\" IS NOT NULL"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

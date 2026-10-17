@@ -114,16 +114,30 @@ health check verifies the ready endpoint. Run only one replica.
 
 ## Configuration
 
-| Setting               | Purpose                                                            |
-| --------------------- | ------------------------------------------------------------------ |
-| `DATABASE_PATH`       | SQLite file; Compose uses `/data/shopping-list.sqlite`             |
-| `CANONICAL_ORIGIN`    | Exact browser-facing origin, normally the HTTPS Serve hostname     |
-| `PORT`                | Internal Node/adapter-node port; Compose uses `3000`               |
-| `SHUTDOWN_TIMEOUT`    | Maximum adapter-node drain interval in seconds; Compose uses `20`  |
-| `LOG_LEVEL`           | Reserved application log level (`info` by default)                 |
-| `PUBLISHED_PORT`      | Host loopback port forwarded to container port 3000                |
-| `BACKUP_DIR`          | Backup output directory; Compose mounts `/backups`                 |
-| `SHOPPING_LIST_IMAGE` | Optional image reference; unset builds local `shopping-list:local` |
+| Setting                   | Purpose                                                                                               |
+| ------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `DATABASE_PATH`           | SQLite file; Compose uses `/data/shopping-list.sqlite`                                                |
+| `CANONICAL_ORIGIN`        | Exact browser-facing origin, normally the HTTPS Serve hostname                                        |
+| `PORT`                    | Internal Node/adapter-node port; Compose uses `3000`                                                  |
+| `SHUTDOWN_TIMEOUT`        | Maximum adapter-node drain interval in seconds; Compose uses `20`                                     |
+| `LOG_LEVEL`               | Reserved application log level (`info` by default)                                                    |
+| `PUBLISHED_PORT`          | Host loopback port forwarded to container port 3000                                                   |
+| `BACKUP_DIR`              | Backup output directory; Compose mounts `/backups`                                                    |
+| `SHOPPING_LIST_IMAGE`     | Optional image reference; unset builds local `shopping-list:local`                                    |
+| `RECEIPT_CURRENCY`        | ISO 4217 code used for receipt money (`USD` by default); invalid codes fail startup                   |
+| `RECEIPT_OCR_URL`         | OCR sidecar endpoint (`http`/`https`); unset by default, which disables capture and the worker        |
+| `RECEIPT_OCR_MODE`        | `http` (default) or `stub`, which returns a canned fixture without calling the sidecar                |
+| `RECEIPT_OCR_TIMEOUT_MS`  | Per-request OCR timeout in milliseconds (`30000` by default)                                          |
+| `RECEIPT_OCR_TOKEN`       | Optional bearer token sent to the OCR engine when it is not loopback-only                             |
+| `RECEIPT_STORAGE_DIR`     | Retained receipt images under the `/data` volume (`/data/receipts` by default)                        |
+| `RECEIPT_IMAGE_RETENTION` | `keep` (capture-first default), `until_commit`, or `immediate`                                        |
+| `BODY_SIZE_LIMIT`         | adapter-node request body cap; set `12M` at deploy, since the upload route still caps images at 10 MB |
+
+The receipt settings are all optional: with `RECEIPT_OCR_URL` unset the app
+boots and runs exactly as before, and already-collected receipts stay readable.
+`BODY_SIZE_LIMIT` is read by adapter-node itself, not by the app's config
+module, so an invalid receipt setting fails startup loudly while a missing
+`BODY_SIZE_LIMIT` silently rejects photo uploads before route code runs.
 
 The `.env` file contains deployment configuration, not authentication secrets;
 do not put credentials or tailnet keys in browser-visible settings. Do not commit
