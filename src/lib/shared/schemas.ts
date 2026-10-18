@@ -282,6 +282,13 @@ export const receiptCapabilitiesSchema = z.object({
   currency: z.string(),
 });
 
+/** `POST /api/receipts`: 201 for a new capture, 200 for a deduplicated one. */
+export const receiptUploadResponseSchema = z.object({
+  id: uuidSchema,
+  status: receiptStatusSchema,
+  alreadyCaptured: z.boolean().optional(),
+});
+
 export type AddEntryInput = z.infer<typeof addEntrySchema>;
 export type EditEntryInput = z.infer<typeof editEntrySchema>;
 export type PurchaseEntryInput = z.infer<typeof purchaseEntrySchema>;

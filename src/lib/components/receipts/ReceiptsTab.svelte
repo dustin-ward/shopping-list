@@ -1,12 +1,21 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { ApiError, requestJson } from '../../client/api';
+  import { prepareReceiptImage } from '../../client/receipt-image';
+  import {
+    receiptUploadErrorMessage,
+    uploadReceipt,
+  } from '../../client/receipt-upload';
   import type {
     ReceiptDetail,
     ReceiptListItem,
     ReceiptListPage,
     ReceiptStatus,
   } from '../../shared/schemas';
+
+  // Capture writes to the server, so the page hands down the existing `canWrite`
+  // rule (online, no pending action) rather than re-deriving connectivity here.
+  let { writable = false }: { writable?: boolean } = $props();
 
   const STATUS_LABELS: Record<ReceiptStatus, string> = {
     pending: 'Pending',
@@ -36,6 +45,8 @@
   let listError = $state('');
   let statusFilter = $state<ReceiptStatus | 'all'>('all');
   let hasUnknownsOnly = $state(false);
+  /** The page request in flight, so a caller can wait for it to drain. */
+  let loadInFlight: Promise<void> | null = null;
 
   let selectedId = $state<string | null>(null);
   let detail = $state<ReceiptDetail | null>(null);
@@ -44,6 +55,13 @@
   let imageFailed = $state(false);
   let detailRefreshing = false;
   let pollTimer: ReturnType<typeof setInterval> | undefined;
+
+  let captureInput = $state<HTMLInputElement | null>(null);
+  let capturing = $state(false);
+  let captureStatus = $state('');
+  let captureProgress = $state<number | null>(null);
+  let captureNotice = $state('');
+  let captureError = $state('');
 
   onMount(() => {
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -60,8 +78,15 @@
     }
   }
 
-  async function loadPage(reset: boolean): Promise<void> {
-    if (loading) return;
+  function loadPage(reset: boolean): Promise<void> {
+    if (loadInFlight) return loadInFlight;
+    loadInFlight = fetchPage(reset).finally(() => {
+      loadInFlight = null;
+    });
+    return loadInFlight;
+  }
+
+  async function fetchPage(reset: boolean): Promise<void> {
     loading = true;
     listError = '';
     try {
@@ -95,6 +120,53 @@
   function toggleUnknowns(): void {
     hasUnknownsOnly = !hasUnknownsOnly;
     void loadPage(true);
+  }
+
+  function openCapture(): void {
+    captureInput?.click();
+  }
+
+  /**
+   * The whole capture moment: compress on the device, upload with progress, then
+   * refresh the list so the new pending receipt is visible without a reload.
+   */
+  async function handleFileChosen(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    // Reset so picking the same photo again still fires a change event.
+    input.value = '';
+    if (!file) return;
+
+    capturing = true;
+    captureError = '';
+    captureNotice = '';
+    captureProgress = null;
+    captureStatus = 'Compressing the photo…';
+    try {
+      const prepared = await prepareReceiptImage(file);
+      captureStatus = 'Uploading the receipt…';
+      const result = await uploadReceipt(prepared.blob, {
+        onProgress: (fraction) => {
+          captureProgress = Math.round(fraction * 100);
+        },
+      });
+      captureNotice = result.alreadyCaptured
+        ? 'That receipt was already captured — it is already in the list.'
+        : 'Receipt captured. It appears in the list as pending.';
+      // A new capture must be visible even while a filter is active, and a page
+      // request that began before the upload cannot contain the new receipt —
+      // let it drain, then fetch a page that does.
+      statusFilter = 'all';
+      hasUnknownsOnly = false;
+      await loadInFlight;
+      await loadPage(true);
+    } catch (error) {
+      captureError = receiptUploadErrorMessage(error);
+    } finally {
+      capturing = false;
+      captureStatus = '';
+      captureProgress = null;
+    }
   }
 
   async function openDetail(id: string): Promise<void> {
@@ -245,6 +317,46 @@
       {/if}
     </div>
   {:else}
+    {#if writable}
+      <div class="capture-row">
+        <button
+          class="capture-button"
+          type="button"
+          disabled={capturing}
+          onclick={openCapture}
+        >
+          {capturing ? 'Preparing photo…' : 'Capture receipt'}
+        </button>
+        <input
+          bind:this={captureInput}
+          class="capture-input"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          aria-label="Capture receipt photo"
+          onchange={handleFileChosen}
+        />
+      </div>
+    {/if}
+
+    {#if capturing}
+      <p class="capture-progress" role="status">
+        <span>{captureStatus}</span>
+        {#if captureProgress !== null}
+          <progress max="100" value={captureProgress}></progress>
+          <span>{captureProgress}%</span>
+        {/if}
+      </p>
+    {/if}
+
+    {#if captureError}
+      <p class="capture-error" role="alert">{captureError}</p>
+    {/if}
+
+    {#if captureNotice}
+      <p class="capture-notice" role="status">{captureNotice}</p>
+    {/if}
+
     <div class="receipt-filters" role="group" aria-label="Filter receipts">
       {#each FILTERS as filter (filter.value)}
         <button
@@ -322,6 +434,75 @@
 </section>
 
 <style>
+  .capture-row {
+    display: flex;
+    margin: 0.75rem 0 0.25rem;
+  }
+
+  .capture-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.9rem;
+    padding: 0.65rem 1.1rem;
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    color: var(--page-bg);
+    background: var(--accent);
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: 0.025em;
+    text-transform: uppercase;
+  }
+
+  .capture-button:hover:not(:disabled) {
+    background: #e2b96f;
+  }
+
+  .capture-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.52;
+  }
+
+  /* The input stays in the accessibility tree; the button is the camera tap. */
+  .capture-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .capture-progress {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0.6rem 0 0;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+
+  .capture-error,
+  .capture-notice {
+    margin: 0.6rem 0 0;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    font-size: 0.85rem;
+  }
+
+  .capture-error {
+    border-color: #81564b;
+    color: #f0c0b4;
+    background: #30231f;
+  }
+
+  .capture-notice {
+    border-color: #59684a;
+    color: var(--success);
+    background: #252b21;
+  }
+
   .receipt-filters {
     display: flex;
     flex-wrap: wrap;

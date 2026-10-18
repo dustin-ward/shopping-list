@@ -1708,7 +1708,7 @@
       {/if}
     </section>
   {:else if screen === 'receipts'}
-    <ReceiptsTab />
+    <ReceiptsTab writable={canWrite} />
   {:else}
     <section class="secondary-screen" aria-labelledby="history-heading">
       <div class="list-heading">
