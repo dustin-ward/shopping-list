@@ -234,6 +234,90 @@ describe('ReceiptLines suggestion chips', () => {
   });
 });
 
+describe('ReceiptLines review editor', () => {
+  /** The rendered row whose printed-text field carries this text, chips included. */
+  function editableRowFor(body: string, printedText: string): string {
+    const row = body
+      .split('<li class="receipt-line')
+      .find(
+        (candidate) =>
+          candidate.includes(`value="${printedText}"`) &&
+          candidate.includes('line-editor'),
+      );
+    expect(row, `no editable row rendered for ${printedText}`).toBeDefined();
+    return `<li class="receipt-line${row!}`;
+  }
+
+  function renderEditable(name: string): string {
+    return readable(
+      render(ReceiptLines, {
+        props: { lines: linesOf(name), currency: 'USD', editable: true },
+      }).body,
+    );
+  }
+
+  it('turns every item row into a form of its editable fields', () => {
+    const body = renderEditable('stub-ocr');
+    const itemLines = linesOf('stub-ocr').filter((line) => line.isItemChunk);
+
+    expect(body.match(/class="line-editor"/gu)).toHaveLength(itemLines.length);
+
+    const row = editableRowFor(body, 'MILK 2% 1L');
+    for (const field of [
+      'rawText',
+      'quantityReal',
+      'quantityText',
+      'quantityUnit',
+      'unitPriceMinor',
+      'totalPriceMinor',
+    ]) {
+      expect(row, field).toContain(`name="${field}"`);
+    }
+    // The stored values fill the fields, so an untouched row saves nothing.
+    expect(row).toContain('value="MILK 2% 1L"');
+    expect(row).toContain('value="3.49"');
+    expect(row).toContain('line-state state-unreviewed">Unreviewed');
+  });
+
+  it('offers the two states a reviewer can reach without an item', () => {
+    const row = editableRowFor(renderEditable('stub-ocr'), 'MILK 2% 1L');
+
+    expect(row).toContain(">Can't identify</button>");
+    expect(row).toContain('>Skip</button>');
+    expect(row.match(/aria-pressed="false"/gu)).toHaveLength(2);
+  });
+
+  it('shows the state a line already sits on', () => {
+    const lines = linesOf('stub-ocr').map((line) =>
+      line.rawText === 'MILK 2% 1L'
+        ? { ...line, reviewState: 'unknown' as const }
+        : line,
+    );
+    const body = readable(
+      render(ReceiptLines, {
+        props: { lines, currency: 'USD', editable: true },
+      }).body,
+    );
+    const row = editableRowFor(body, 'MILK 2% 1L');
+
+    expect(row).toContain('line-state state-unknown">Unknown');
+    expect(row).toContain('aria-pressed="true"');
+  });
+
+  it('leaves parked rows parser-settled and read-only', () => {
+    const body = renderEditable('stub-ocr');
+    const parked = rowFor(body, 'SUBTOTAL');
+
+    expect(parked).not.toContain('line-editor');
+    expect(parked).toContain('line-parked">Parked');
+    expect(parked).toMatch(/line-total-price[^>]*>.*17\.55/u);
+  });
+
+  it('renders no form at all when the receipt is not editable', () => {
+    expect(renderLines('stub-ocr')).not.toContain('line-editor');
+  });
+});
+
 describe('ReceiptTotalsStrip', () => {
   it('shows the item sum, subtotal, tax and total of the fixture', () => {
     const body = renderStrip('clean-grocery');

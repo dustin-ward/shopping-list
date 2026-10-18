@@ -10,10 +10,11 @@ import {
   type ReceiptListItem,
   type ReceiptListPage,
   type ReceiptStatus,
+  type UpdateReceiptInput,
 } from '../../shared/schemas';
 import { getConfig } from '../config.js';
 import { getRawDatabase } from '../db/connection';
-import { AppError, notFound } from '../errors';
+import { AppError, badRequest, conflict, notFound } from '../errors';
 import { detectImageFormat } from '../receipts/image-format';
 import {
   readMultipartFilePart,
@@ -23,9 +24,12 @@ import { imageContentType } from '../receipts/ocr-engine';
 import { ocrTextFromJson } from '../receipts/ocr-text';
 import { suggestionsForLines } from '../receipts/matcher';
 import type { ParsedReceipt } from '../receipts/parser';
+import { resolveLineEdit, type EditableLine } from '../receipts/review-edits';
 import { bindTierOneMatches, loadMatchContext } from './receipt-matching';
 import {
+  assertReceiptUpdatedAt,
   currentListId,
+  getLiveGroup,
   runWriteTransaction,
   timestampNow,
   type SqliteDatabase,
@@ -409,6 +413,201 @@ export function getReceiptImage(
     throw notFound('Receipt image is not available.');
   }
   return { bytes, contentType: imageContentType(row.image_path) };
+}
+
+/**
+ * Apply the review editor's edits (plan §8 PATCH contract) in one transaction.
+ *
+ * Only a receipt in `review` is editable — committed receipts are immutable in
+ * R1 — and the caller's `updatedAt` must match the stored one, so a stale edit
+ * is refused instead of silently clobbering a newer one. Lines are validated
+ * against this receipt, item lines only (parked rows are parser-settled), and
+ * the state/binding rules live in `resolveLineEdit`. The fresh detail comes
+ * back so the editor can replace its copy without a second round trip.
+ */
+export function updateReceipt(
+  receiptId: string,
+  input: UpdateReceiptInput,
+  database: SqliteDatabase = getRawDatabase(),
+  config = getConfig(),
+): ReceiptDetail {
+  const listId = currentListId(database);
+
+  return runWriteTransaction(database, () => {
+    const row = database
+      .prepare(
+        `SELECT id, status, updated_at FROM receipts
+          WHERE id = ? AND list_id = ?`,
+      )
+      .get(receiptId, listId) as
+      { id: string; status: ReceiptStatus; updated_at: string } | undefined;
+    if (!row) throw notFound('Receipt not found.');
+    if (row.status !== 'review') {
+      throw conflict(
+        'RECEIPT_NOT_EDITABLE',
+        `Only a receipt in review can be edited; this one is ${row.status}.`,
+        { status: row.status },
+      );
+    }
+    assertReceiptUpdatedAt(receiptId, row.updated_at, input.expectedUpdatedAt);
+
+    if (
+      input.currency !== undefined &&
+      input.currency !== config.receiptCurrency
+    ) {
+      throw badRequest(
+        'INVALID_CURRENCY',
+        `Receipts are recorded in ${config.receiptCurrency}.`,
+      );
+    }
+    if (input.storeGroupId) {
+      const group = getLiveGroup(database, listId, input.storeGroupId);
+      if (!group || group.kind !== 'store') {
+        throw new AppError(
+          400,
+          'INVALID_STORE',
+          'Choose a store from this list.',
+          { fieldErrors: { storeGroupId: ['Choose a store group.'] } },
+        );
+      }
+    }
+
+    const now = timestampNow();
+    let changed = false;
+
+    for (const linePatch of input.lines ?? []) {
+      const lineRow = database
+        .prepare(
+          `SELECT id, raw_text, quantity_real, quantity_text, quantity_unit,
+                  unit_price_minor, total_price_minor, review_state,
+                  catalog_item_id, bound_via, bound_rank, is_item_chunk
+             FROM receipt_lines
+            WHERE id = ? AND receipt_id = ?`,
+        )
+        .get(linePatch.id, receiptId) as
+        (EditableLineRow & { is_item_chunk: number }) | undefined;
+      if (!lineRow?.is_item_chunk) {
+        throw badRequest(
+          'INVALID_LINE',
+          'Only an item line on this receipt can be edited.',
+        );
+      }
+
+      const resolved = resolveLineEdit(toEditableLine(lineRow), linePatch);
+      if (resolved.catalogItemId) {
+        requireLiveCatalogItem(database, listId, resolved.catalogItemId);
+      }
+      database
+        .prepare(
+          `UPDATE receipt_lines
+              SET raw_text = ?, quantity_real = ?, quantity_text = ?,
+                  quantity_unit = ?, unit_price_minor = ?, total_price_minor = ?,
+                  review_state = ?, catalog_item_id = ?, bound_via = ?,
+                  bound_rank = ?, updated_at = ?
+            WHERE id = ?`,
+        )
+        .run(
+          resolved.rawText,
+          resolved.quantityReal,
+          resolved.quantityText,
+          resolved.quantityUnit,
+          resolved.unitPriceMinor,
+          resolved.totalPriceMinor,
+          resolved.reviewState,
+          resolved.catalogItemId,
+          resolved.boundVia,
+          resolved.boundRank,
+          now,
+          linePatch.id,
+        );
+      changed = true;
+    }
+
+    if (applyReceiptFields(database, receiptId, input)) changed = true;
+
+    // The guard token is the receipt's `updated_at`, so every accepted edit
+    // moves it — including the edits that only touched a line.
+    if (changed) {
+      database
+        .prepare('UPDATE receipts SET updated_at = ? WHERE id = ?')
+        .run(now, receiptId);
+    }
+
+    return getReceiptDetail(receiptId, database);
+  });
+}
+
+/** The receipt-level corrections, or `false` when the patch carried none. */
+function applyReceiptFields(
+  database: SqliteDatabase,
+  receiptId: string,
+  input: UpdateReceiptInput,
+): boolean {
+  const assignments: string[] = [];
+  const values: unknown[] = [];
+  const columns: [keyof UpdateReceiptInput, string][] = [
+    ['storeGroupId', 'store_group_id'],
+    ['currency', 'currency'],
+    ['subtotalMinor', 'subtotal_minor'],
+    ['taxMinor', 'tax_minor'],
+    ['totalMinor', 'total_minor'],
+  ];
+  for (const [field, column] of columns) {
+    if (input[field] === undefined) continue;
+    assignments.push(`${column} = ?`);
+    values.push(input[field]);
+  }
+  if (!assignments.length) return false;
+
+  database
+    .prepare(`UPDATE receipts SET ${assignments.join(', ')} WHERE id = ?`)
+    .run(...values, receiptId);
+  return true;
+}
+
+/** One stored line as it comes out of SQLite, before it is resolved. */
+type EditableLineRow = {
+  raw_text: string;
+  quantity_real: number | null;
+  quantity_text: string | null;
+  quantity_unit: EditableLine['quantityUnit'];
+  unit_price_minor: number | null;
+  total_price_minor: number | null;
+  review_state: EditableLine['reviewState'];
+  catalog_item_id: string | null;
+  bound_via: EditableLine['boundVia'];
+  bound_rank: number | null;
+};
+
+/** The row read in the shape the edit rules speak. */
+function toEditableLine(row: EditableLineRow): EditableLine {
+  return {
+    rawText: row.raw_text,
+    quantityReal: row.quantity_real,
+    quantityText: row.quantity_text,
+    quantityUnit: row.quantity_unit,
+    unitPriceMinor: row.unit_price_minor,
+    totalPriceMinor: row.total_price_minor,
+    reviewState: row.review_state,
+    catalogItemId: row.catalog_item_id,
+    boundVia: row.bound_via,
+    boundRank: row.bound_rank,
+  };
+}
+
+function requireLiveCatalogItem(
+  database: SqliteDatabase,
+  listId: string,
+  catalogItemId: string,
+): void {
+  const item = database
+    .prepare('SELECT id FROM catalog_items WHERE id = ? AND list_id = ?')
+    .get(catalogItemId, listId) as { id: string } | undefined;
+  if (!item) {
+    throw new AppError(400, 'INVALID_ITEM', 'Choose an item from this list.', {
+      fieldErrors: { catalogItemId: ['Choose an item from this list.'] },
+    });
+  }
 }
 
 /**

@@ -8,8 +8,17 @@
  * own is not what the receipt says.
  */
 
-import type { ReceiptLine, ReceiptSuggestion } from '../shared/schemas';
+import type {
+  ReceiptLine,
+  ReceiptStatus,
+  ReceiptSuggestion,
+} from '../shared/schemas';
 import type { ReceiptTotals } from '../shared/receipt-totals';
+
+/** A receipt the worker is still reading: it is worth polling, and no lines yet. */
+export function isReceiptInFlight(status: ReceiptStatus): boolean {
+  return status === 'pending' || status === 'processing';
+}
 
 /** The fields one rendered line needs; a parser line fits this shape too. */
 export type ReceiptLineFields = Pick<

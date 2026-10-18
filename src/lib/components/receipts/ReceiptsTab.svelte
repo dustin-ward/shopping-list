@@ -7,8 +7,8 @@
     receiptUploadErrorMessage,
     uploadReceipt,
   } from '../../client/receipt-upload';
-  import ReceiptLines from './ReceiptLines.svelte';
-  import ReceiptTotalsStrip from './ReceiptTotalsStrip.svelte';
+  import { isReceiptInFlight } from '../../client/receipt-display';
+  import ReceiptReviewEditor from './ReceiptReviewEditor.svelte';
   import type {
     ReceiptDetail,
     ReceiptListItem,
@@ -55,7 +55,6 @@
   let detail = $state<ReceiptDetail | null>(null);
   let detailLoading = $state(false);
   let detailError = $state('');
-  let imageFailed = $state(false);
   let detailRefreshing = false;
   let pollTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -176,9 +175,14 @@
     selectedId = id;
     detail = null;
     detailError = '';
-    imageFailed = false;
     stopPolling();
     await refreshDetail();
+  }
+
+  /** The editor saved an edit; its response is the receipt's new truth. */
+  function handleDetailSaved(updated: ReceiptDetail): void {
+    detail = updated;
+    detailError = '';
   }
 
   async function refreshDetail(): Promise<void> {
@@ -206,12 +210,8 @@
   }
 
   /** A receipt still being read must be polled; a settled one must not. */
-  function isInFlight(status: ReceiptStatus): boolean {
-    return status === 'pending' || status === 'processing';
-  }
-
   function syncPoll(status: ReceiptStatus): void {
-    if (isInFlight(status)) startPolling();
+    if (isReceiptInFlight(status)) startPolling();
     else stopPolling();
   }
 
@@ -232,7 +232,6 @@
     stopPolling();
     selectedId = null;
     detail = null;
-    imageFailed = false;
     void loadPage(true);
   }
 
@@ -286,40 +285,7 @@
           <p class="message error-message" role="alert">{detail.lastError}</p>
         {/if}
 
-        <figure class="receipt-image">
-          {#if !detail.imageAvailable || imageFailed}
-            <figcaption class="purged-note">
-              Image purged — the text below is kept.
-            </figcaption>
-          {:else}
-            <img
-              src={`/api/receipts/${detail.id}/image`}
-              alt="Scanned receipt"
-              onerror={() => (imageFailed = true)}
-            />
-          {/if}
-        </figure>
-
-        <h3 class="detail-subheading">Parsed lines</h3>
-        {#if detail.lines.length}
-          <ReceiptLines lines={detail.lines} currency={detail.currency} />
-          <ReceiptTotalsStrip
-            lines={detail.lines}
-            subtotalMinor={detail.subtotalMinor}
-            taxMinor={detail.taxMinor}
-            totalMinor={detail.totalMinor}
-            currency={detail.currency}
-          />
-        {:else if isInFlight(detail.status)}
-          <p class="muted">Reading the receipt… this updates automatically.</p>
-        {:else}
-          <p class="muted">No lines were read from this receipt.</p>
-        {/if}
-
-        {#if detail.ocrText}
-          <h3 class="detail-subheading">Raw OCR text</h3>
-          <pre class="ocr-text">{detail.ocrText}</pre>
-        {/if}
+        <ReceiptReviewEditor {detail} {writable} onSaved={handleDetailSaved} />
       {:else if detailLoading}
         <p class="empty-list">Loading receipt…</p>
       {/if}
@@ -621,46 +587,5 @@
   .detail-total {
     margin-left: auto;
     font-variant-numeric: tabular-nums;
-  }
-
-  .receipt-image {
-    margin: 0 0 1rem;
-    padding: 0;
-  }
-
-  .receipt-image img {
-    display: block;
-    width: 100%;
-    max-height: 60vh;
-    object-fit: contain;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: var(--surface-inset);
-  }
-
-  .purged-note {
-    padding: 1.5rem 1rem;
-    border: 1px dashed var(--line);
-    border-radius: 12px;
-    color: var(--text-muted);
-    text-align: center;
-  }
-
-  .detail-subheading {
-    margin: 1rem 0 0.5rem;
-    font-size: 0.95rem;
-  }
-
-  .ocr-text {
-    margin: 0;
-    padding: 0.9rem 1rem;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: var(--surface-inset);
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.82rem;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
   }
 </style>

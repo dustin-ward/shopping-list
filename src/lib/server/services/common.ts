@@ -104,6 +104,26 @@ export function assertExpectedRevision(
   }
 }
 
+/**
+ * The receipt guard. Receipts have no per-resource revision counter — they are
+ * single-actor review flows (plan §8) — so the review editor sends the
+ * `updated_at` it last saw, and a receipt that moved on refuses the write
+ * rather than overwriting the newer edit.
+ */
+export function assertReceiptUpdatedAt(
+  id: string,
+  actualUpdatedAt: string,
+  expectedUpdatedAt: string,
+): void {
+  if (actualUpdatedAt !== expectedUpdatedAt) {
+    throw conflict(
+      'RECEIPT_CHANGED',
+      'This receipt changed on another device. Refresh and review your changes.',
+      { id, expectedUpdatedAt, actualUpdatedAt },
+    );
+  }
+}
+
 export function validateLiveGroups(
   database: SqliteDatabase,
   listId: string,

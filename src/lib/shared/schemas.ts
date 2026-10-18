@@ -245,6 +245,13 @@ export const receiptListPageSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 
+export const receiptBoundViaSchema = z.enum([
+  'auto',
+  'suggested',
+  'manual',
+  'created',
+]);
+
 export const receiptLineSchema = z.object({
   id: uuidSchema,
   lineIndex: z.number().int().min(0),
@@ -259,7 +266,7 @@ export const receiptLineSchema = z.object({
   confidence: z.number().nullable(),
   catalogItemId: uuidSchema.nullable(),
   reviewState: receiptReviewStateSchema,
-  boundVia: z.enum(['auto', 'suggested', 'manual', 'created']).nullable(),
+  boundVia: receiptBoundViaSchema.nullable(),
   boundRank: z.number().int().nullable(),
 });
 
@@ -302,6 +309,61 @@ export const receiptCapabilitiesSchema = z.object({
   currency: z.string(),
 });
 
+/**
+ * One line's review edits. Every field is optional: the editor sends what the
+ * reviewer touched and nothing else, so two edits of the same line never fight
+ * over fields neither of them changed.
+ */
+export const receiptLineEditSchema = z
+  .object({
+    id: uuidSchema,
+    rawText: z
+      .string()
+      .trim()
+      .min(1, 'Printed text cannot be empty.')
+      .max(300, 'Printed text can be up to 300 characters.')
+      .optional(),
+    quantityReal: z
+      .number()
+      .gt(0, 'Quantity must be more than zero.')
+      .nullable()
+      .optional(),
+    quantityText: z.string().trim().max(80).nullable().optional(),
+    quantityUnit: receiptQuantityUnitSchema.nullable().optional(),
+    unitPriceMinor: z.number().int().nullable().optional(),
+    totalPriceMinor: z.number().int().nullable().optional(),
+    reviewState: receiptReviewStateSchema.optional(),
+    catalogItemId: uuidSchema.nullable().optional(),
+    boundVia: receiptBoundViaSchema.nullable().optional(),
+    boundRank: z.number().int().min(1).nullable().optional(),
+  })
+  .strict();
+
+/** `PATCH /api/receipts/[id]`: the review edits, guarded by `updated_at`. */
+export const updateReceiptSchema = z
+  .object({
+    /** The receipt's `updatedAt` the editor last saw. */
+    expectedUpdatedAt: z.string().trim().min(1).max(40),
+    lines: z
+      .array(receiptLineEditSchema)
+      .max(1000)
+      .superRefine((lines, ctx) => {
+        if (new Set(lines.map((line) => line.id)).size !== lines.length) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'Line IDs must be unique.',
+          });
+        }
+      })
+      .optional(),
+    storeGroupId: uuidSchema.nullable().optional(),
+    currency: z.string().trim().length(3).optional(),
+    subtotalMinor: z.number().int().nullable().optional(),
+    taxMinor: z.number().int().nullable().optional(),
+    totalMinor: z.number().int().nullable().optional(),
+  })
+  .strict();
+
 /** `POST /api/receipts`: 201 for a new capture, 200 for a deduplicated one. */
 export const receiptUploadResponseSchema = z.object({
   id: uuidSchema,
@@ -329,3 +391,7 @@ export type ReceiptSuggestion = z.infer<typeof receiptSuggestionSchema>;
 export type ReceiptDetailLine = z.infer<typeof receiptDetailLineSchema>;
 export type ReceiptDetail = z.infer<typeof receiptDetailSchema>;
 export type ReceiptCapabilities = z.infer<typeof receiptCapabilitiesSchema>;
+export type ReceiptLineEdit = z.infer<typeof receiptLineEditSchema>;
+export type UpdateReceiptInput = z.infer<typeof updateReceiptSchema>;
+/** One line's edits without the id: what a row's form hands to its parent. */
+export type ReceiptLinePatch = Omit<ReceiptLineEdit, 'id'>;

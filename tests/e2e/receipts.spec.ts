@@ -67,6 +67,47 @@ async function capture(request: APIRequestContext): Promise<string> {
   return body.id;
 }
 
+/**
+ * A capture whose bytes are unique, so it is always a fresh receipt and always
+ * the newest one in the list. The extra trailing bytes do not change the PNG
+ * signature the server validates.
+ */
+async function captureUnique(
+  request: APIRequestContext,
+  tag: string,
+): Promise<string> {
+  const response = await request.post('/api/receipts', {
+    headers: { origin: featureOnOrigin, 'x-forwarded-proto': 'http' },
+    multipart: {
+      image: {
+        name: 'receipt.png',
+        mimeType: 'image/png',
+        buffer: Buffer.concat([image, Buffer.from(`\n#${tag}\n`)]),
+      },
+    },
+  });
+  expect(response.status()).toBe(201);
+  return ((await response.json()) as { id: string }).id;
+}
+
+/** Open the newest receipt — the one this test just captured — in the editor. */
+async function openNewestReceipt(page: Page): Promise<void> {
+  await page.locator('.receipt-list .receipt-open').first().click();
+  await expect(page.locator('.receipt-detail .status-chip')).toHaveText(
+    'Review needed',
+    { timeout: 15_000 },
+  );
+}
+
+/**
+ * One line's row, found by its parsed name. The parsed name is the parser's
+ * output, so it identifies the row even after the reviewer edits the printed
+ * text beside it.
+ */
+function lineRow(page: Page, parsedName: string) {
+  return page.locator('.receipt-line', { hasText: parsedName });
+}
+
 test('captures a receipt, lists it, and flips pending to review in the open view', async ({
   page,
   request,
@@ -132,9 +173,11 @@ test('renders the parsed lines, the parked rows and the totals strip', async ({
   await expect(parked.locator('.line-total-price')).toContainText('17.55');
 
   const milk = page.locator('.receipt-line', { hasText: 'MILK 2% 1L' });
-  await expect(milk.locator('.line-printed')).toHaveText('MILK 2% 1L');
+  // Item rows are the editor's forms now (ticket 11), so their printed text and
+  // prices live in fields; the parsed name stays the parser's own output.
+  await expect(milk.getByLabel('Printed text')).toHaveValue('MILK 2% 1L');
   await expect(milk.locator('.line-parsed-name')).toHaveText('MILK 2% 1L');
-  await expect(milk.locator('.line-total-price')).toContainText('3.49');
+  await expect(milk.getByLabel('Line total')).toHaveValue('3.49');
 
   const strip = page.locator('.totals-strip');
   await expect(strip.locator('.totals-items')).toContainText('17.55');
@@ -262,4 +305,118 @@ test('hides capture while the device is offline', async ({ page }) => {
   await expect(captureButton).toHaveCount(0, { timeout: 15_000 });
 
   await page.context().setOffline(false);
+});
+
+test('reviews a receipt: unknown and skipped states survive a reload', async ({
+  page,
+  request,
+}) => {
+  await captureUnique(request, 'states');
+  await openReceiptsTab(page);
+  await openNewestReceipt(page);
+
+  const milk = lineRow(page, 'MILK 2% 1L');
+  await expect(milk.locator('.line-state')).toHaveText('Unreviewed');
+
+  await milk.getByRole('button', { name: /can't identify/i }).click();
+  await expect(milk.locator('.line-state')).toHaveText('Unknown');
+
+  const bread = lineRow(page, 'SOURDOUGH BREAD');
+  await bread.getByRole('button', { name: 'Skip' }).click();
+  await expect(bread.locator('.line-state')).toHaveText('Skipped');
+
+  // The control toggles: pressing the state again releases the line back to a
+  // decision still to make, and the "can't identify" choice is not sticky.
+  await milk.getByRole('button', { name: /can't identify/i }).click();
+  await expect(milk.locator('.line-state')).toHaveText('Unreviewed');
+
+  await page.reload();
+  await openReceiptsTab(page);
+  await openNewestReceipt(page);
+
+  await expect(
+    lineRow(page, 'SOURDOUGH BREAD').locator('.line-state'),
+  ).toHaveText('Skipped');
+  await expect(lineRow(page, 'MILK 2% 1L').locator('.line-state')).toHaveText(
+    'Unreviewed',
+  );
+});
+
+test('edits a line: the strip follows, and the edit survives a reload', async ({
+  page,
+  request,
+}) => {
+  await captureUnique(request, 'edits');
+  await openReceiptsTab(page);
+  await openNewestReceipt(page);
+
+  const strip = page.locator('.totals-strip');
+  await expect(strip.locator('.totals-items')).toContainText('17.55');
+
+  const milk = lineRow(page, 'MILK 2% 1L');
+  await milk.getByLabel('Line total').fill('4.00');
+  // Enter commits the row's form (a blur does the same for a mouse user).
+  await milk.getByLabel('Line total').press('Enter');
+  await expect(strip.locator('.totals-items')).toContainText('18.06');
+  // The edited sum no longer reconciles, and the strip says so.
+  await expect(strip.locator('.totals-warning')).toContainText('18.06');
+
+  await milk.getByLabel('Printed text').fill('MILK 2% 2L');
+  await milk.getByLabel('Printed text').press('Enter');
+  await expect(milk.getByLabel('Printed text')).toHaveValue('MILK 2% 2L');
+
+  await page.reload();
+  await openReceiptsTab(page);
+  await openNewestReceipt(page);
+
+  const reread = lineRow(page, 'MILK 2% 1L');
+  await expect(reread.getByLabel('Printed text')).toHaveValue('MILK 2% 2L');
+  await expect(reread.getByLabel('Line total')).toHaveValue('4.00');
+  await expect(page.locator('.totals-strip .totals-items')).toContainText(
+    '18.06',
+  );
+  // The engine's output is the immutable original: edits correct the reviewed
+  // text without rewriting what was read.
+  await expect(page.locator('.ocr-text')).toContainText('MILK 2% 1L');
+});
+
+test('the has-unknowns chip lists only receipts with unknown lines', async ({
+  page,
+  request,
+}) => {
+  await captureUnique(request, 'unknowns');
+  await openReceiptsTab(page);
+  await openNewestReceipt(page);
+
+  const milk = lineRow(page, 'MILK 2% 1L');
+  await milk.getByRole('button', { name: /can't identify/i }).click();
+  await expect(milk.locator('.line-state')).toHaveText('Unknown');
+
+  await page.getByRole('button', { name: 'Back to receipts' }).click();
+  const cards = page.locator('.receipt-list .receipt-card');
+  await expect(cards.first()).toBeVisible();
+
+  const filtered = (await (
+    await request.get('/api/receipts?hasUnknowns=true')
+  ).json()) as { items: unknown[] };
+  expect(filtered.items.length).toBeGreaterThan(0);
+
+  const unknownChip = page.getByRole('button', {
+    name: 'Has unknowns',
+    exact: true,
+  });
+  await unknownChip.click();
+  await expect(cards).toHaveCount(filtered.items.length);
+  // Every card left on screen is a receipt that has one, badge and all.
+  await expect(page.locator('.receipt-list .unknown-badge')).toHaveCount(
+    filtered.items.length,
+  );
+
+  // Releasing the chip brings the whole list back.
+  await unknownChip.click();
+  const all = (await (await request.get('/api/receipts')).json()) as {
+    items: unknown[];
+  };
+  expect(all.items.length).toBeGreaterThan(filtered.items.length);
+  await expect(cards).toHaveCount(all.items.length);
 });
