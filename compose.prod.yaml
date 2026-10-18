@@ -22,6 +22,12 @@ services:
       RECEIPT_OCR_MODE: ${RECEIPT_OCR_MODE:-http}
       RECEIPT_OCR_TIMEOUT_MS: ${RECEIPT_OCR_TIMEOUT_MS:-30000}
       RECEIPT_OCR_TOKEN: ${RECEIPT_OCR_TOKEN:-}
+      RECEIPT_CURRENCY: ${RECEIPT_CURRENCY:-USD}
+      # Captured images live inside the /data volume and are archived by
+      # scripts/backup.mjs. RECEIPT_IMAGE_RETENTION defaults to keep; see
+      # docs/operations.md for the retention caveat.
+      RECEIPT_STORAGE_DIR: /data/receipts
+      RECEIPT_IMAGE_RETENTION: ${RECEIPT_IMAGE_RETENTION:-keep}
     ports:
       - target: 3000
         published: ${PUBLISHED_PORT:-3000}

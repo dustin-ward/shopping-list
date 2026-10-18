@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, mkdirSync, openSync, rmSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { AppError, badRequest } from '../errors';
+import { UPLOAD_SPOOL_PREFIX } from './upload-spool.js';
 
 /**
  * Route-local multipart reader for the receipt upload route. The shared
@@ -65,7 +66,10 @@ export async function readMultipartFilePart(
   }
 
   mkdirSync(options.tempDir, { recursive: true });
-  const tempPath = join(options.tempDir, `.incoming-${randomUUID()}`);
+  const tempPath = join(
+    options.tempDir,
+    `${UPLOAD_SPOOL_PREFIX}${randomUUID()}`,
+  );
   const descriptor = openSync(tempPath, 'wx');
   const stream = new ByteStream(source.getReader(), options.maxBytes);
   const hash = createHash('sha256');

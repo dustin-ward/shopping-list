@@ -61,6 +61,13 @@ function expectAppReceivesTheSidecar(file: string): void {
     'RECEIPT_OCR_TIMEOUT_MS: ${RECEIPT_OCR_TIMEOUT_MS:-30000}',
   );
   expect(app).toContain('RECEIPT_OCR_TOKEN: ${RECEIPT_OCR_TOKEN:-}');
+  // The shipped shape also carries the capture settings: money in a configured
+  // currency, images inside the /data volume, and the retention escape hatch.
+  expect(app).toContain('RECEIPT_CURRENCY: ${RECEIPT_CURRENCY:-USD}');
+  expect(app).toContain('RECEIPT_STORAGE_DIR: /data/receipts');
+  expect(app).toContain(
+    'RECEIPT_IMAGE_RETENTION: ${RECEIPT_IMAGE_RETENTION:-keep}',
+  );
 }
 
 describe('dev compose', () => {
