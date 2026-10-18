@@ -21,7 +21,9 @@ import {
 } from '../receipts/multipart.js';
 import { imageContentType } from '../receipts/ocr-engine';
 import { ocrTextFromJson } from '../receipts/ocr-text';
+import { suggestionsForLines } from '../receipts/matcher';
 import type { ParsedReceipt } from '../receipts/parser';
+import { bindTierOneMatches, loadMatchContext } from './receipt-matching';
 import {
   currentListId,
   runWriteTransaction,
@@ -141,6 +143,10 @@ function storeUploadedReceipt(
  * transaction: this must run in the same one that moves the receipt to
  * `review`, or a crash between them would leave a reviewable receipt with no
  * lines.
+ *
+ * Tier-1 bindings are applied here too, for the same reason: a receipt must
+ * never be reviewable with an exact name or alias match sitting unbound. Only
+ * the automatic binding is written; tier-2 candidates are computed on read.
  */
 export function writeReceiptParse(
   database: SqliteDatabase,
@@ -195,6 +201,8 @@ export function writeReceiptParse(
       now,
     );
   });
+
+  bindTierOneMatches(database, receiptId);
 }
 
 // ---------------------------------------------------------------------------
@@ -315,9 +323,15 @@ export function listReceipts(
 }
 
 /**
- * Receipt fields plus its lines and image-availability flag. The client polls
- * this while the receipt is `pending`; suggestions attach here in a later
- * ticket.
+ * Receipt fields plus its lines, per-line suggestion candidates and
+ * image-availability flag. The client polls this while the receipt is
+ * `pending`.
+ *
+ * Suggestions are computed on read rather than stored: they are a pure
+ * function of the lines and what the list currently knows, so a newly learned
+ * alias or a renamed item is reflected the next time the receipt is opened —
+ * and nothing speculative lands in the schema (spec §3: three tables).
+ * Tier-1 lines still arrive bound, because that binding *is* persisted.
  */
 export function getReceiptDetail(
   receiptId: string,
@@ -347,6 +361,11 @@ export function getReceiptDetail(
     )
     .all(receiptId) as ReceiptLineRow[];
 
+  const suggestions = suggestionsForLines(
+    lines.map(mapLine),
+    loadMatchContext(database, listId, row.store_group_id),
+  );
+
   return {
     ...mapListItem(row),
     updatedAt: row.updated_at,
@@ -358,7 +377,10 @@ export function getReceiptDetail(
     attempts: row.attempts,
     ocrWarnings: row.ocr_warnings,
     ocrText: ocrTextFromJson(row.ocr_json),
-    lines: lines.map(mapLine),
+    lines: lines.map((line) => ({
+      ...mapLine(line),
+      suggestions: suggestions.get(line.id) ?? [],
+    })),
   };
 }
 

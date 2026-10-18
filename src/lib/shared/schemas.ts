@@ -263,6 +263,26 @@ export const receiptLineSchema = z.object({
   boundRank: z.number().int().nullable(),
 });
 
+/**
+ * One candidate the matcher offers for a receipt line. Tier 1 is a normalized
+ * exact match to an item name or a human-confirmed alias (the line arrives
+ * bound on it); tier 2 is a fuzzy suggestion, never auto-bound. `score` is a
+ * ranking number, not a probability.
+ */
+export const receiptSuggestionSchema = z.object({
+  catalogItemId: uuidSchema,
+  name: z.string(),
+  tier: z.union([z.literal(1), z.literal(2)]),
+  score: z.number(),
+  /** A human-confirmed alias for this item was learned at this receipt's store. */
+  sameStore: z.boolean(),
+});
+
+export const receiptDetailLineSchema = receiptLineSchema.extend({
+  /** Ranked candidates for this line, ≤5; empty on a parked row. */
+  suggestions: z.array(receiptSuggestionSchema),
+});
+
 export const receiptDetailSchema = receiptListItemSchema.extend({
   updatedAt: z.string(),
   processedAt: z.string().nullable(),
@@ -274,7 +294,7 @@ export const receiptDetailSchema = receiptListItemSchema.extend({
   ocrWarnings: z.string().nullable(),
   /** Raw OCR line text joined with newlines; null until the receipt is processed. */
   ocrText: z.string().nullable(),
-  lines: z.array(receiptLineSchema),
+  lines: z.array(receiptDetailLineSchema),
 });
 
 export const receiptCapabilitiesSchema = z.object({
@@ -305,5 +325,7 @@ export type ReceiptReviewState = z.infer<typeof receiptReviewStateSchema>;
 export type ReceiptListItem = z.infer<typeof receiptListItemSchema>;
 export type ReceiptListPage = z.infer<typeof receiptListPageSchema>;
 export type ReceiptLine = z.infer<typeof receiptLineSchema>;
+export type ReceiptSuggestion = z.infer<typeof receiptSuggestionSchema>;
+export type ReceiptDetailLine = z.infer<typeof receiptDetailLineSchema>;
 export type ReceiptDetail = z.infer<typeof receiptDetailSchema>;
 export type ReceiptCapabilities = z.infer<typeof receiptCapabilitiesSchema>;

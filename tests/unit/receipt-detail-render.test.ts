@@ -4,7 +4,10 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import ReceiptLines from '../../src/lib/components/receipts/ReceiptLines.svelte';
 import ReceiptTotalsStrip from '../../src/lib/components/receipts/ReceiptTotalsStrip.svelte';
-import type { ReceiptLine } from '../../src/lib/shared/schemas';
+import type {
+  ReceiptDetailLine,
+  ReceiptSuggestion,
+} from '../../src/lib/shared/schemas';
 import { parseReceiptOcr } from '../../src/lib/server/receipts/parser';
 
 /**
@@ -23,7 +26,7 @@ function fixture(name: string) {
 }
 
 /** The parser's lines in the shape the detail API returns them. */
-function linesOf(name: string): ReceiptLine[] {
+function linesOf(name: string): ReceiptDetailLine[] {
   return fixture(name).lines.map((line, lineIndex) => ({
     id: `00000000-0000-4000-8000-${String(lineIndex).padStart(12, '0')}`,
     lineIndex,
@@ -40,6 +43,7 @@ function linesOf(name: string): ReceiptLine[] {
     reviewState: 'unreviewed' as const,
     boundVia: null,
     boundRank: null,
+    suggestions: [],
   }));
 }
 
@@ -70,13 +74,13 @@ function renderStrip(name: string): string {
   );
 }
 
-/** The rendered row that carries this printed text. */
+/** The rendered row that carries this printed text, chips included. */
 function rowFor(body: string, printedText: string): string {
   const row = body
-    .split('<li')
+    .split('<li class="receipt-line')
     .find((candidate) => candidate.includes(`>${printedText}<`));
   expect(row, `no row rendered for ${printedText}`).toBeDefined();
-  return row!;
+  return `<li class="receipt-line${row!}`;
 }
 
 describe('ReceiptLines', () => {
@@ -160,6 +164,73 @@ describe('ReceiptLines', () => {
     );
 
     expect(body.trim()).not.toContain('receipt-line');
+  });
+});
+
+describe('ReceiptLines suggestion chips', () => {
+  const milkSuggestion: ReceiptSuggestion = {
+    catalogItemId: '00000000-0000-4000-8000-000000000001',
+    name: 'Milk',
+    tier: 2,
+    score: 0.94,
+    sameStore: true,
+  };
+  const milkSizeSuggestion: ReceiptSuggestion = {
+    catalogItemId: '00000000-0000-4000-8000-000000000002',
+    name: 'Milk 2%',
+    tier: 2,
+    score: 0.92,
+    sameStore: false,
+  };
+
+  /** The fixture's lines with suggestion chips attached the way the API sends them. */
+  function linesWithChips(): ReceiptDetailLine[] {
+    return linesOf('clean-grocery').map((line) =>
+      line.rawText === 'MILK 2% 1L'
+        ? { ...line, suggestions: [milkSuggestion, milkSizeSuggestion] }
+        : line,
+    );
+  }
+
+  it('draws a chip per candidate with its tier badge', () => {
+    const body = readable(
+      render(ReceiptLines, {
+        props: { lines: linesWithChips(), currency: 'USD' },
+      }).body,
+    );
+    const row = rowFor(body, 'MILK 2% 1L');
+
+    expect(row).toContain('suggestion-name">Milk<');
+    expect(row).toContain('suggestion-name">Milk 2%<');
+    expect(row.match(/suggestion-tier">Tier 2</gu)).toHaveLength(2);
+    expect(
+      body.match(/<li class="suggestion-chip/gu),
+      'no chips on a line without candidates',
+    ).toHaveLength(2);
+  });
+
+  it('marks a tier-1 chip as the binding the line already sits on', () => {
+    const lines = linesWithChips().map((line) =>
+      line.rawText === 'MILK 2% 1L'
+        ? {
+            ...line,
+            reviewState: 'bound' as const,
+            catalogItemId: milkSuggestion.catalogItemId,
+            boundVia: 'auto' as const,
+            suggestions: [{ ...milkSuggestion, tier: 1 as const, score: 1 }],
+          }
+        : line,
+    );
+
+    const row = rowFor(
+      readable(
+        render(ReceiptLines, { props: { lines, currency: 'USD' } }).body,
+      ),
+      'MILK 2% 1L',
+    );
+
+    expect(row).toContain('suggestion-tier">Tier 1<');
+    expect(row).toContain('suggestion-bound">Bound<');
   });
 });
 

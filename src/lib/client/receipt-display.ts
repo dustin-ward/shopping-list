@@ -8,7 +8,7 @@
  * own is not what the receipt says.
  */
 
-import type { ReceiptLine } from '../shared/schemas';
+import type { ReceiptLine, ReceiptSuggestion } from '../shared/schemas';
 import type { ReceiptTotals } from '../shared/receipt-totals';
 
 /** The fields one rendered line needs; a parser line fits this shape too. */
@@ -59,6 +59,37 @@ function quantityLabel(line: ReceiptLineFields): string | null {
   if (line.quantityReal === null) return line.quantityText?.trim() || null;
   if (line.quantityUnit) return `${line.quantityReal} ${line.quantityUnit}`;
   return line.quantityText?.trim() || String(line.quantityReal);
+}
+
+/**
+ * The tier badges the review editor shows on a suggestion chip: the plan's
+ * tier table in the reviewer's words, with the tier named so the choice is
+ * legible (ticket 12 makes the chips tappable).
+ */
+export function suggestionTierBadge(tier: ReceiptSuggestion['tier']): {
+  label: string;
+  hint: string;
+} {
+  return tier === 1
+    ? {
+        label: 'Tier 1',
+        hint: 'Matches the item name or an alias a human confirmed',
+      }
+    : {
+        label: 'Tier 2',
+        hint: 'A fuzzy suggestion — it is never bound without you',
+      };
+}
+
+/** Whether the line already sits on this candidate (a tier-1 auto-bind). */
+export function suggestionIsBound(
+  line: Pick<ReceiptLine, 'catalogItemId' | 'reviewState'>,
+  suggestion: Pick<ReceiptSuggestion, 'catalogItemId'>,
+): boolean {
+  return (
+    line.reviewState === 'bound' &&
+    line.catalogItemId === suggestion.catalogItemId
+  );
 }
 
 /**
