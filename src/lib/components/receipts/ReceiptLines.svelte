@@ -67,6 +67,16 @@
 
   const UNITS = ['lb', 'kg', 'oz', 'g', 'l', 'ml', 'ea'] as const;
 
+  /**
+   * The household's item names, by id. A read-only (committed) row shows the
+   * item its line landed on, which is what makes the commit visible: the name
+   * comes from the snapshot the page polls, so a created item appears here only
+   * once the commit's revision bump has been read.
+   */
+  const itemNames = $derived(
+    new Map(catalogItems.map((item) => [item.id, item.name])),
+  );
+
   /** Form problems stay with the row that has them. */
   let errors = $state<Record<string, string>>({});
 
@@ -265,6 +275,11 @@
             {#if view.parsedName}
               <span class="line-parsed-name">{view.parsedName}</span>
             {/if}
+            {#if !view.parked && line.catalogItemId && itemNames.has(line.catalogItemId)}
+              <span class="line-bound-item"
+                >{itemNames.get(line.catalogItemId)}</span
+              >
+            {/if}
           </div>
           <div class="line-figures">
             {#if view.parked}
@@ -383,6 +398,13 @@
   .line-parsed-name {
     color: var(--text-muted);
     font-size: 0.82rem;
+  }
+
+  /* The item a committed line landed on — the commit made visible. */
+  .line-bound-item {
+    color: var(--success);
+    font-size: 0.82rem;
+    font-weight: 600;
   }
 
   .line-state {

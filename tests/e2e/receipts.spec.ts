@@ -618,3 +618,173 @@ test('binds a suggestion and drafts an item and a store without creating rows', 
     'Trader Joe’s',
   );
 });
+
+test('commits a reviewed receipt: the drafts become rows and the view goes read-only', async ({
+  page,
+  request,
+}) => {
+  // Names unique to this run, so "the item exists" can only mean the commit
+  // created it — a fixed name could be a leftover from an earlier run.
+  const suffix = randomUUID().slice(0, 8);
+  const itemName = `Sourdough loaf ${suffix}`;
+  const storeName = `Harbor Market ${suffix}`;
+  const receiptId = await captureUnique(request, `commit-${suffix}`);
+
+  await openReceiptsTab(page);
+  await openNewestReceipt(page);
+
+  // The gate: every item line is still undecided, so commit is refused and the
+  // button says what is missing.
+  const commitButton = page.getByRole('button', { name: 'Commit receipt' });
+  await expect(commitButton).toBeDisabled();
+  await expect(page.locator('.commit-blocker')).toContainText('item line');
+
+  // One line drafts a new item…
+  const bread = lineRow(page, 'SOURDOUGH BREAD');
+  await bread.getByRole('button', { name: 'Create new item' }).click();
+  await bread.getByLabel('New item name').fill(itemName);
+
+  // …and the rest are decided without one: two unknowns and a skip.
+  await lineRow(page, 'MILK 2% 1L')
+    .getByRole('button', { name: /can't identify/i })
+    .click();
+  await lineRow(page, 'GALA APPLES')
+    .getByRole('button', { name: /can't identify/i })
+    .click();
+  await lineRow(page, 'CHEDDAR CHEESE')
+    .getByRole('button', { name: 'Skip' })
+    .click();
+
+  // Every item line is decided now; the store is what is missing.
+  await expect(page.locator('.commit-blocker')).toContainText('store');
+  await expect(commitButton).toBeDisabled();
+
+  // A drafted store stands in for one, and the gate opens.
+  await page.getByRole('button', { name: 'Create new store' }).click();
+  await page.getByLabel('New store name').fill(storeName);
+  await page.getByRole('button', { name: 'Use new store' }).click();
+  await expect(page.locator('.commit-blocker')).toHaveCount(0);
+  await expect(commitButton).toBeEnabled();
+
+  await commitButton.click();
+
+  // The receipt is committed, and the editor is read-only from here on.
+  await expect(page.locator('.receipt-detail .status-chip')).toHaveText(
+    'Committed',
+    { timeout: 15_000 },
+  );
+  await expect(page.locator('.receipt-lines input.line-printed')).toHaveCount(
+    0,
+  );
+  await expect(commitButton).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Discard receipt' }),
+  ).toHaveCount(0);
+
+  // The drafted item is a catalog row, and the line still carries the state the
+  // reviewer left it in — with the provenance of the commit's own creation.
+  const stored = await storedLine(request, receiptId, 'SOURDOUGH BREAD');
+  expect(stored).toMatchObject({
+    reviewState: 'new',
+    boundVia: 'created',
+  });
+  expect(stored.catalogItemId).not.toBeNull();
+
+  const household = await readHousehold(request);
+  expect(household.catalogItems.map((item) => item.name)).toContain(itemName);
+  expect(household.groups.map((group) => group.name)).toContain(storeName);
+
+  // The read-only row shows the item it landed on. That name comes from the
+  // snapshot the page polls — it is only there because the commit created a
+  // snapshot-visible row and bumped the revision — and no reload happens here.
+  await expect(
+    lineRow(page, 'SOURDOUGH BREAD').locator('.line-bound-item'),
+  ).toHaveText(itemName, { timeout: 15_000 });
+  // An unknown line stays an observation: no item, no name, still shown.
+  await expect(
+    lineRow(page, 'GALA APPLES').locator('.line-bound-item'),
+  ).toHaveCount(0);
+
+  // A second commit is a conflict, not a re-run.
+  const detail = (await (
+    await request.get(`/api/receipts/${receiptId}`)
+  ).json()) as { updatedAt: string };
+  const again = await request.post(`/api/receipts/${receiptId}/commit`, {
+    headers: mutationHeaders,
+    data: { expectedUpdatedAt: detail.updatedAt },
+  });
+  expect(again.status()).toBe(409);
+  expect(((await again.json()) as { error: { code: string } }).error.code).toBe(
+    'RECEIPT_ALREADY_COMMITTED',
+  );
+
+  // The list around the detail was refreshed too: the row reads Committed.
+  await page.getByRole('button', { name: 'Back to receipts' }).click();
+  await expect(
+    page.locator('.receipt-list .receipt-card').first().locator('.status-chip'),
+  ).toHaveText('Committed');
+});
+
+test('discards a receipt: the photo goes, the text stays, the bytes capture again', async ({
+  page,
+  request,
+}) => {
+  const tag = `discard-${randomUUID().slice(0, 8)}`;
+  const receiptId = await captureUnique(request, tag);
+  const before = await receiptCount(request);
+
+  await openReceiptsTab(page);
+  await openNewestReceipt(page);
+  await expect(page.locator('.receipt-lines .receipt-line')).toHaveCount(13);
+
+  // One tap only asks: the receipt is untouched until the confirm.
+  await page.getByRole('button', { name: 'Discard receipt' }).click();
+  await expect(page.locator('.discard-confirm')).toContainText(
+    'text and lines are kept',
+  );
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.locator('.discard-confirm')).toHaveCount(0);
+  await expect(page.locator('.receipt-detail .status-chip')).toHaveText(
+    'Review needed',
+  );
+
+  await page.getByRole('button', { name: 'Discard receipt' }).click();
+  await page.getByRole('button', { name: 'Confirm discard' }).click();
+
+  // Discarded, purged, and still readable: the audit trail is the text.
+  await expect(page.locator('.receipt-detail .status-chip')).toHaveText(
+    'Discarded',
+    { timeout: 15_000 },
+  );
+  await expect(page.locator('.purged-note')).toContainText('Image purged');
+  await expect(page.locator('.receipt-lines .receipt-line')).toHaveCount(13);
+  await expect(page.locator('.ocr-text')).toContainText('MILK 2% 1L');
+  await expect(
+    page.getByRole('button', { name: 'Discard receipt' }),
+  ).toHaveCount(0);
+
+  const detail = (await (
+    await request.get(`/api/receipts/${receiptId}`)
+  ).json()) as { status: string; imageAvailable: boolean };
+  expect(detail.status).toBe('discarded');
+  expect(detail.imageAvailable).toBe(false);
+  expect((await request.get(`/api/receipts/${receiptId}/image`)).status()).toBe(
+    404,
+  );
+
+  // It drops out of the list…
+  await page.getByRole('button', { name: 'Back to receipts' }).click();
+  await expect(page.locator('.receipt-list .receipt-card')).toHaveCount(
+    before - 1,
+  );
+
+  // …while its own detail stays queryable, and its bytes capture again: the
+  // discarded hash no longer blocks the upload.
+  expect(
+    (await (await request.get(`/api/receipts/${receiptId}`)).json()) as {
+      status: string;
+    },
+  ).toMatchObject({ status: 'discarded' });
+  const again = await captureUnique(request, tag);
+  expect(again).not.toBe(receiptId);
+});

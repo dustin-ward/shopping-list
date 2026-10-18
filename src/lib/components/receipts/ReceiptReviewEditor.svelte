@@ -10,6 +10,14 @@
     type GroupOption,
   } from '../../client/receipt-binding';
   import {
+    commitBlocker,
+    commitErrorMessage,
+    commitReceiptInput,
+    discardErrorMessage,
+    submitReceiptCommit,
+    submitReceiptDiscard,
+  } from '../../client/receipt-commit';
+  import {
     fetchReceiptDetail,
     saveReceiptReview,
   } from '../../client/receipt-review';
@@ -43,20 +51,35 @@
     catalogItems = [],
     groups = [],
     onSaved,
+    onSettled,
   }: {
     detail: ReceiptDetail;
     writable?: boolean;
     catalogItems?: readonly CatalogItemOption[];
     groups?: readonly GroupOption[];
     onSaved: (detail: ReceiptDetail) => void;
+    /** The receipt left the review queue: the list around it may need a refresh. */
+    onSettled?: (detail: ReceiptDetail) => void;
   } = $props();
 
   const editable = $derived(detail.status === 'review' && writable);
   const stores = $derived(groups.filter((group) => group.kind === 'store'));
+  /** Discard stands from any status but the two it cannot change. */
+  const discardable = $derived(
+    writable && detail.status !== 'committed' && detail.status !== 'discarded',
+  );
 
   let imageFailed = $state(false);
   let saving = $state(false);
   let saveError = $state('');
+  /** The commit or discard in flight, and the refusal it came back with. */
+  let committing = $state(false);
+  let discarding = $state(false);
+  let actionError = $state('');
+  /** Discard asks twice: the first tap only arms the confirm. */
+  let confirmingDiscard = $state(false);
+  /** Every write to this receipt is refused while one is in flight. */
+  const busy = $derived(saving || committing || discarding);
   /**
    * Saves run one at a time and in order. Blurring a field, pressing a state
    * control and accepting a chip can all fire in the same moment, and the second
@@ -72,6 +95,13 @@
    */
   let itemDrafts = $state<Record<string, string>>({});
   let storeDraft = $state('');
+  /**
+   * Why commit is not available yet, or `null` when it is. The server's plan is
+   * the authority; this is what keeps the button disabled and says why.
+   */
+  const blocker = $derived(
+    editable ? commitBlocker(detail, { itemDrafts, storeDraft }) : null,
+  );
   /** The store the receipt's own text names, while the reviewer has chosen none. */
   const storeSuggestion = $derived(
     !detail.storeGroupId && !storeDraft
@@ -176,6 +206,86 @@
       saveError = 'This receipt changed elsewhere. Refresh to see the latest.';
     }
   }
+
+  /**
+   * Commit the reviewed receipt. The save queue drains first: the request is
+   * guarded by the `updatedAt` the editor last saw, so an edit still in flight
+   * would make this commit stale by its own hand. The drafts go with it — a
+   * name the reviewer typed is not a row until the server materializes it — and
+   * what comes back is a committed receipt, read-only from here on.
+   */
+  async function commit(): Promise<void> {
+    if (committing || blocker) return;
+    actionError = '';
+    committing = true;
+    try {
+      await queue;
+      const updated = await submitReceiptCommit(
+        detail.id,
+        commitReceiptInput(detail, { itemDrafts, storeDraft }),
+      );
+      itemDrafts = {};
+      storeDraft = '';
+      saveError = '';
+      onSaved(updated);
+      onSettled?.(updated);
+    } catch (error) {
+      const message = commitErrorMessage(error);
+      if (
+        error instanceof ApiError &&
+        (error.code === 'RECEIPT_CHANGED' ||
+          error.code === 'RECEIPT_ALREADY_COMMITTED')
+      ) {
+        // Someone else committed it, or edited it: show their copy.
+        await refreshAfterConflict(message);
+      } else {
+        actionError = message;
+      }
+    } finally {
+      committing = false;
+    }
+  }
+
+  /**
+   * Discard the receipt: two taps, because the image is gone for good. What is
+   * kept is the audit trail — the OCR text and the parsed lines — which is why
+   * the reviewer is told exactly that before they confirm.
+   */
+  async function discard(): Promise<void> {
+    if (discarding) return;
+    actionError = '';
+    confirmingDiscard = false;
+    discarding = true;
+    try {
+      await queue;
+      const updated = await submitReceiptDiscard(detail.id);
+      onSaved(updated);
+      onSettled?.(updated);
+    } catch (error) {
+      const message = discardErrorMessage(error);
+      if (error instanceof ApiError && error.code === 'RECEIPT_COMMITTED') {
+        await refreshAfterConflict(message);
+      } else {
+        actionError = message;
+      }
+    } finally {
+      discarding = false;
+    }
+  }
+
+  /**
+   * The receipt moved on under us: show the server's copy, since the local one
+   * is what the refusal was about. The message stays, so the reviewer knows why
+   * their commit or discard did not take.
+   */
+  async function refreshAfterConflict(message: string): Promise<void> {
+    actionError = message;
+    try {
+      onSaved(await fetchReceiptDetail(detail.id));
+    } catch {
+      // The message already says what happened; a manual refresh still works.
+    }
+  }
 </script>
 
 <figure class="receipt-image">
@@ -196,13 +306,17 @@
   <p class="message error-message" role="alert">{saveError}</p>
 {/if}
 
+{#if actionError}
+  <p class="message error-message" role="alert">{actionError}</p>
+{/if}
+
 <h3 class="detail-subheading">Parsed lines</h3>
 {#if detail.lines.length}
   <ReceiptLines
     lines={detail.lines}
     currency={detail.currency}
     {editable}
-    {saving}
+    saving={busy}
     {catalogItems}
     drafts={itemDrafts}
     onLineEdit={submitLine}
@@ -241,6 +355,60 @@
   <p class="muted">No lines were read from this receipt.</p>
 {/if}
 
+{#if editable}
+  <div class="commit-row">
+    <button
+      type="button"
+      class="commit-button"
+      disabled={busy || blocker !== null}
+      onclick={commit}
+    >
+      {committing ? 'Committing…' : 'Commit receipt'}
+    </button>
+    {#if blocker}
+      <!-- Why the button is disabled, in the reviewer's words. -->
+      <p class="commit-blocker" role="status">{blocker}</p>
+    {/if}
+  </div>
+{/if}
+
+{#if discardable}
+  <div class="discard-row">
+    {#if confirmingDiscard}
+      <p class="discard-confirm" role="status">
+        Discard this receipt? The photo is deleted; the text and lines are kept.
+      </p>
+      <div class="discard-actions">
+        <button
+          type="button"
+          class="confirm-discard-button"
+          disabled={busy}
+          onclick={discard}
+        >
+          {discarding ? 'Discarding…' : 'Confirm discard'}
+        </button>
+        <button
+          type="button"
+          class="discard-cancel-button"
+          disabled={busy}
+          onclick={() => (confirmingDiscard = false)}
+        >
+          Cancel
+        </button>
+      </div>
+    {:else}
+      <button
+        type="button"
+        class="discard-button"
+        disabled={busy}
+        onclick={() => (confirmingDiscard = true)}
+      >
+        Discard receipt
+      </button>
+    {/if}
+  </div>
+{/if}
+
 {#if detail.ocrText}
   <h3 class="detail-subheading">Raw OCR text</h3>
   <pre class="ocr-text">{detail.ocrText}</pre>
@@ -273,6 +441,92 @@
   .detail-subheading {
     margin: 1rem 0 0.5rem;
     font-size: 0.95rem;
+  }
+
+  /* The write path's two actions, set apart from the review edits above them. */
+  .commit-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 1.1rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .commit-button {
+    min-height: 2.8rem;
+    padding: 0.6rem 1rem;
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    color: var(--page-bg);
+    background: var(--accent);
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    font-weight: 700;
+    letter-spacing: 0.025em;
+    text-transform: uppercase;
+  }
+
+  .commit-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.52;
+  }
+
+  .commit-blocker {
+    flex: 1 1 12rem;
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+  }
+
+  .discard-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 0.85rem;
+  }
+
+  /* The confirm reads before the buttons, so the tap cannot be a surprise. */
+  .discard-confirm {
+    flex: 1 0 100%;
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+
+  .discard-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .discard-button,
+  .confirm-discard-button,
+  .discard-cancel-button {
+    min-height: 2.4rem;
+    padding: 0.5rem 0.8rem;
+    border: 1px solid var(--line-bright);
+    border-radius: 2px;
+    color: var(--text);
+    background: transparent;
+    font-family: var(--font-display);
+    font-size: 0.82rem;
+    font-weight: 650;
+    letter-spacing: 0.015em;
+    text-transform: uppercase;
+  }
+
+  .confirm-discard-button {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  .discard-button:disabled,
+  .confirm-discard-button:disabled,
+  .discard-cancel-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.52;
   }
 
   .ocr-text {

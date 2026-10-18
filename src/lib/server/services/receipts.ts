@@ -3,7 +3,9 @@ import { readFileSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import {
+  DEFAULT_GROUP_COLOR,
   receiptStatusSchema,
+  type CommitReceiptInput,
   type ReceiptCapabilities,
   type ReceiptDetail,
   type ReceiptLine,
@@ -15,6 +17,15 @@ import {
 import { getConfig } from '../config.js';
 import { getRawDatabase } from '../db/connection';
 import { AppError, badRequest, conflict, notFound } from '../errors';
+import {
+  planReceiptCommit,
+  type AliasLearning,
+  type CommitPlan,
+  type CommittableLine,
+  type ExistingItem,
+  type ItemRef,
+  type LiveGroup,
+} from '../receipts/commit-plan';
 import { detectImageFormat } from '../receipts/image-format';
 import {
   readMultipartFilePart,
@@ -28,6 +39,7 @@ import { resolveLineEdit, type EditableLine } from '../receipts/review-edits';
 import { bindTierOneMatches, loadMatchContext } from './receipt-matching';
 import {
   assertReceiptUpdatedAt,
+  bumpSnapshotRevision,
   currentListId,
   getLiveGroup,
   runWriteTransaction,
@@ -608,6 +620,358 @@ function requireLiveCatalogItem(
       fieldErrors: { catalogItemId: ['Choose an item from this list.'] },
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// The write path. Commit is the only way a receipt's rows become canonical
+// data; discard is the one deliberate deletion.
+// ---------------------------------------------------------------------------
+
+/**
+ * Commit one reviewed receipt: validate the gate, materialize the reviewer's
+ * drafts, bind the lines, learn the aliases, and mark the receipt committed —
+ * all inside one immediate transaction, so a refusal or a crash leaves the
+ * receipt exactly as it was.
+ *
+ * Only a receipt in `review` can be committed; a second commit is a conflict,
+ * not a re-run. The plan (`receipts/commit-plan.ts`) decides everything; this
+ * function only writes it.
+ */
+export function commitReceipt(
+  receiptId: string,
+  input: CommitReceiptInput,
+  database: SqliteDatabase = getRawDatabase(),
+): ReceiptDetail {
+  const listId = currentListId(database);
+
+  return runWriteTransaction(database, () => {
+    const row = database
+      .prepare(
+        `SELECT id, status, updated_at AS updatedAt,
+                store_group_id AS storeGroupId
+           FROM receipts
+          WHERE id = ? AND list_id = ?`,
+      )
+      .get(receiptId, listId) as
+      | {
+          id: string;
+          status: ReceiptStatus;
+          updatedAt: string;
+          storeGroupId: string | null;
+        }
+      | undefined;
+    if (!row) throw notFound('Receipt not found.');
+    if (row.status === 'committed') {
+      throw conflict(
+        'RECEIPT_ALREADY_COMMITTED',
+        'This receipt is already committed.',
+        { status: row.status },
+      );
+    }
+    if (row.status !== 'review') {
+      throw conflict(
+        'RECEIPT_NOT_COMMITTABLE',
+        `Only a receipt in review can be committed; this one is ${row.status}.`,
+        { status: row.status },
+      );
+    }
+    // The guard every review edit carries: a commit made from a stale view would
+    // gate and materialize lines the reviewer has since changed.
+    assertReceiptUpdatedAt(receiptId, row.updatedAt, input.expectedUpdatedAt);
+
+    const plan = planReceiptCommit({
+      lines: loadCommittableLines(database, receiptId),
+      itemDrafts: input.itemDrafts ?? [],
+      storeGroupId: row.storeGroupId,
+      storeDraft: input.storeDraft ?? null,
+      items: database
+        .prepare(
+          `SELECT id, normalized_name AS normalizedName
+             FROM catalog_items
+            WHERE list_id = ?
+            ORDER BY normalized_name, id`,
+        )
+        .all(listId) as ExistingItem[],
+      groups: database
+        .prepare(
+          `SELECT id, normalized_name AS normalizedName, kind
+             FROM groups
+            WHERE list_id = ? AND archived_at IS NULL
+            ORDER BY position, id`,
+        )
+        .all(listId) as LiveGroup[],
+    });
+
+    writeCommitPlan(database, listId, receiptId, plan);
+    return getReceiptDetail(receiptId, database);
+  });
+}
+
+/**
+ * Execute a plan: create the items and the store it asked for, bind the lines,
+ * learn the aliases, commit the receipt — and bump the snapshot revision only
+ * when it created something the snapshot carries.
+ */
+function writeCommitPlan(
+  database: SqliteDatabase,
+  listId: string,
+  receiptId: string,
+  plan: CommitPlan,
+): void {
+  const now = timestampNow();
+  const createdItems = new Map<string, string>();
+  for (const item of plan.newItems) {
+    const id = randomUUID();
+    database
+      .prepare(
+        `INSERT INTO catalog_items (id, list_id, display_name, normalized_name)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(id, listId, item.name, item.normalizedName);
+    createdItems.set(item.normalizedName, id);
+  }
+
+  const storeGroupId =
+    plan.store.kind === 'existing'
+      ? plan.store.groupId
+      : createStoreGroup(
+          database,
+          listId,
+          plan.store.normalizedName,
+          plan.store.name,
+        );
+
+  const resolveItem = (item: ItemRef): string => {
+    const id =
+      item.kind === 'existing'
+        ? item.id
+        : createdItems.get(item.normalizedName);
+    if (!id) {
+      throw new AppError(
+        500,
+        'COMMIT_PLAN_INVALID',
+        'The commit plan referred to an item that was never created.',
+      );
+    }
+    return id;
+  };
+
+  const bind = database.prepare(
+    `UPDATE receipt_lines
+        SET catalog_item_id = ?, review_state = 'new', bound_via = ?,
+            bound_rank = NULL, updated_at = ?
+      WHERE id = ? AND receipt_id = ?`,
+  );
+  for (const write of plan.lineWrites) {
+    // The line keeps the reviewer's `new` state — that is what they did — while
+    // `bound_via` records where the binding came from.
+    bind.run(
+      resolveItem(write.item),
+      write.boundVia,
+      now,
+      write.lineId,
+      receiptId,
+    );
+  }
+
+  for (const alias of plan.aliases) {
+    learnAlias(database, listId, resolveItem(alias.item), alias, now);
+  }
+
+  database
+    .prepare(
+      `UPDATE receipts
+          SET status = 'committed', store_group_id = ?, committed_at = ?,
+              last_error = NULL, updated_at = ?
+        WHERE id = ? AND list_id = ?`,
+    )
+    .run(storeGroupId, now, now, receiptId, listId);
+
+  // Receipts and aliases stay out of the snapshot: only a created item or store
+  // group is something the rest of the app has to hear about.
+  if (plan.createsEntities) bumpSnapshotRevision(database, now);
+}
+
+/** A store group as the Groups screen would create one: store kind, live position. */
+function createStoreGroup(
+  database: SqliteDatabase,
+  listId: string,
+  normalizedName: string,
+  name: string,
+): string {
+  const position = database
+    .prepare(
+      `SELECT COALESCE(MAX(position), -1) + 1 AS position
+         FROM groups
+        WHERE list_id = ? AND archived_at IS NULL`,
+    )
+    .get(listId) as { position: number };
+  const id = randomUUID();
+  database
+    .prepare(
+      `INSERT INTO groups (id, list_id, name, normalized_name, kind, color, position)
+       VALUES (?, ?, ?, ?, 'store', ?, ?)`,
+    )
+    .run(
+      id,
+      listId,
+      name,
+      normalizedName,
+      DEFAULT_GROUP_COLOR,
+      position.position,
+    );
+  return id;
+}
+
+/**
+ * Learn one alias from a reviewed line, at most once per item and phrase: a
+ * phrase the item already answers to is left alone, a soft-deleted row is
+ * revived (relearning is what revives it), and anything else is a new row. A
+ * revival is a review whatever wrote the row first, so `source` is rewritten
+ * with the rest — matching only ever binds from a human-confirmed alias.
+ */
+function learnAlias(
+  database: SqliteDatabase,
+  listId: string,
+  catalogItemId: string,
+  alias: Omit<AliasLearning, 'item'>,
+  now: string,
+): void {
+  const live = database
+    .prepare(
+      `SELECT id FROM item_aliases
+        WHERE list_id = ? AND catalog_item_id = ? AND normalized_alias = ?
+          AND deleted_at IS NULL`,
+    )
+    .get(listId, catalogItemId, alias.normalizedAlias);
+  if (live) return;
+
+  const revived = database
+    .prepare(
+      `UPDATE item_aliases
+          SET alias_text = ?, source = 'review',
+              created_by_receipt_line_id = ?, deleted_at = NULL, updated_at = ?
+        WHERE id = (
+                SELECT id FROM item_aliases
+                 WHERE list_id = ? AND catalog_item_id = ? AND normalized_alias = ?
+                   AND deleted_at IS NOT NULL
+                 ORDER BY id
+                 LIMIT 1
+              )`,
+    )
+    .run(
+      alias.aliasText,
+      alias.lineId,
+      now,
+      listId,
+      catalogItemId,
+      alias.normalizedAlias,
+    );
+  if (revived.changes > 0) return;
+
+  database
+    .prepare(
+      `INSERT INTO item_aliases
+         (id, list_id, catalog_item_id, alias_text, normalized_alias, source,
+          created_by_receipt_line_id)
+       VALUES (?, ?, ?, ?, ?, 'review', ?)`,
+    )
+    .run(
+      randomUUID(),
+      listId,
+      catalogItemId,
+      alias.aliasText,
+      alias.normalizedAlias,
+      alias.lineId,
+    );
+}
+
+type CommittableLineRow = {
+  id: string;
+  raw_text: string;
+  is_item_chunk: number;
+  review_state: ReceiptLine['reviewState'];
+  catalog_item_id: string | null;
+};
+
+/** The lines commit reads: parked rows included, in the order they were printed. */
+function loadCommittableLines(
+  database: SqliteDatabase,
+  receiptId: string,
+): CommittableLine[] {
+  const rows = database
+    .prepare(
+      `SELECT id, raw_text, is_item_chunk, review_state, catalog_item_id
+         FROM receipt_lines
+        WHERE receipt_id = ?
+        ORDER BY line_index, id`,
+    )
+    .all(receiptId) as CommittableLineRow[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    rawText: row.raw_text,
+    isItemChunk: Boolean(row.is_item_chunk),
+    reviewState: row.review_state,
+    catalogItemId: row.catalog_item_id,
+  }));
+}
+
+/**
+ * Discard one receipt: mark it discarded, purge its image, and keep everything
+ * read from it (OCR JSON and lines) as the audit trail. Allowed from any
+ * non-committed status — a committed receipt is canonical data in R1 — and
+ * idempotent, since a second discard has nothing left to do. Discarded receipts
+ * leave the lists, the price history and the upload dedupe; their `sha256` is
+ * kept, so the same bytes can be captured again.
+ *
+ * The image is purged *after* the row is committed as discarded, never inside
+ * the transaction: a rollback cannot bring a deleted file back, so a failure
+ * must leave a stray file rather than a row pointing at nothing
+ * (`ADR 0001` — destroying raw data is the one unrecoverable mistake).
+ */
+export function discardReceipt(
+  receiptId: string,
+  database: SqliteDatabase = getRawDatabase(),
+  storageDir: string = getConfig().receiptStorageDir,
+): ReceiptDetail {
+  const listId = currentListId(database);
+
+  const purge = runWriteTransaction(database, () => {
+    const row = database
+      .prepare(
+        `SELECT id, status, image_path AS imagePath
+           FROM receipts
+          WHERE id = ? AND list_id = ?`,
+      )
+      .get(receiptId, listId) as
+      | { id: string; status: ReceiptStatus; imagePath: string | null }
+      | undefined;
+    if (!row) throw notFound('Receipt not found.');
+    if (row.status === 'committed') {
+      throw conflict(
+        'RECEIPT_COMMITTED',
+        'A committed receipt cannot be discarded.',
+        { status: row.status },
+      );
+    }
+    if (row.status === 'discarded') return null;
+
+    database
+      .prepare(
+        `UPDATE receipts
+            SET status = 'discarded', image_path = NULL, image_bytes = NULL,
+                updated_at = ?
+          WHERE id = ? AND list_id = ?`,
+      )
+      .run(timestampNow(), receiptId, listId);
+
+    return row.imagePath;
+  });
+
+  if (purge) rmSync(join(storageDir, purge), { force: true });
+
+  return getReceiptDetail(receiptId, database);
 }
 
 /**

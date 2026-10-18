@@ -364,6 +364,37 @@ export const updateReceiptSchema = z
   })
   .strict();
 
+/**
+ * `POST /api/receipts/[id]/commit`: the reviewer's commit, guarded by the
+ * receipt's `updated_at` like every other review write.
+ *
+ * The two draft kinds travel here and only here: a name the reviewer gave an
+ * inline-created item (there is no column a draft could live in, and nothing is
+ * created before commit) and a drafted store name (which stands in place of a
+ * chosen group — one of the two can be set, never both).
+ */
+export const commitReceiptSchema = z
+  .object({
+    expectedUpdatedAt: z.string().trim().min(1).max(40),
+    itemDrafts: z
+      .array(z.object({ lineId: uuidSchema, name: itemNameSchema }).strict())
+      .max(1000)
+      .superRefine((drafts, ctx) => {
+        if (
+          new Set(drafts.map((draft) => draft.lineId)).size !== drafts.length
+        ) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'Line IDs must be unique.',
+          });
+        }
+      })
+      .optional(),
+    /** A store the reviewer created inline, instead of choosing an existing one. */
+    storeDraft: groupNameSchema.optional(),
+  })
+  .strict();
+
 /** `POST /api/receipts`: 201 for a new capture, 200 for a deduplicated one. */
 export const receiptUploadResponseSchema = z.object({
   id: uuidSchema,
@@ -393,5 +424,6 @@ export type ReceiptDetail = z.infer<typeof receiptDetailSchema>;
 export type ReceiptCapabilities = z.infer<typeof receiptCapabilitiesSchema>;
 export type ReceiptLineEdit = z.infer<typeof receiptLineEditSchema>;
 export type UpdateReceiptInput = z.infer<typeof updateReceiptSchema>;
+export type CommitReceiptInput = z.infer<typeof commitReceiptSchema>;
 /** One line's edits without the id: what a row's form hands to its parent. */
 export type ReceiptLinePatch = Omit<ReceiptLineEdit, 'id'>;

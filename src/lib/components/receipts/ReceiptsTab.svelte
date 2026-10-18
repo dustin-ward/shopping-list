@@ -199,6 +199,18 @@
     detailError = '';
   }
 
+  /**
+   * The receipt left the review queue — committed or discarded. Its row may have
+   * appeared or vanished in the current filter, so the list is fetched again
+   * rather than patched.
+   */
+  async function handleDetailSettled(updated: ReceiptDetail): Promise<void> {
+    handleDetailSaved(updated);
+    stopPolling();
+    await loadInFlight;
+    await loadPage(true);
+  }
+
   async function refreshDetail(): Promise<void> {
     const id = selectedId;
     if (!id || detailRefreshing) return;
@@ -305,6 +317,7 @@
           {catalogItems}
           {groups}
           onSaved={handleDetailSaved}
+          onSettled={handleDetailSettled}
         />
       {:else if detailLoading}
         <p class="empty-list">Loading receipt…</p>
