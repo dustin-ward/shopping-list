@@ -110,8 +110,8 @@ async function openNewestReceipt(page: Page): Promise<void> {
 /** The household's own data, as the review editor's pickers read it. */
 type HouseholdSnapshot = {
   serverInstanceId: string;
-  catalogItems: { name: string }[];
-  groups: { name: string }[];
+  catalogItems: { id: string; name: string }[];
+  groups: { id: string; name: string }[];
 };
 
 async function readHousehold(
@@ -851,6 +851,145 @@ test('manages learned aliases: a delete stops auto-binding, the next review rele
     reviewState: 'bound',
     boundVia: 'auto',
   });
+});
+
+test('repairs a committed binding: explicit mode, alias moves, raw artifacts stay', async ({
+  page,
+  request,
+}) => {
+  // Names unique to this run: aliases are per list and the e2e server is reused
+  // between local runs, so leftovers must not satisfy an assertion about this one.
+  const suffix = randomUUID().slice(0, 8);
+  const milkName = `Milk ${suffix}`;
+  const ryeName = `Rye loaf ${suffix}`;
+  const storeName = `Harbor Market ${suffix}`;
+  await seedItem(request, milkName);
+  await seedItem(request, ryeName);
+  await seedStore(request, storeName);
+
+  /** Decide the fixture and commit it, leaving MILK bound to `milkName`. */
+  async function reviewAndCommit(receiptPage: Page): Promise<void> {
+    const milk = lineRow(receiptPage, 'MILK 2% 1L');
+    // An earlier spec can leave a live alias for this printed wording, which
+    // auto-binds the line before the reviewer sees it; releasing it is how the
+    // reviewer would take it back.
+    const release = milk.getByRole('button', { name: 'Release' });
+    if (await release.count()) await release.click();
+    await milk.getByLabel('Find item').fill(milkName);
+    await milk
+      .locator('.item-matches button.match-button', { hasText: milkName })
+      .click();
+    await expect(milk.locator('.line-state')).toHaveText('Bound');
+    for (const parsedName of [
+      'SOURDOUGH BREAD',
+      'GALA APPLES',
+      'CHEDDAR CHEESE',
+    ]) {
+      const row = lineRow(receiptPage, parsedName);
+      await row.getByRole('button', { name: /can't identify/i }).click();
+    }
+    await receiptPage
+      .locator('.store-select')
+      .selectOption({ label: storeName });
+    await receiptPage.getByRole('button', { name: 'Commit receipt' }).click();
+    await expect(
+      receiptPage.locator('.receipt-detail .status-chip'),
+    ).toHaveText('Committed', { timeout: 15_000 });
+  }
+
+  const receiptId = await captureUnique(request, `repair-${suffix}`);
+  await openReceiptsTab(page);
+  await openNewestReceipt(page);
+  await reviewAndCommit(page);
+
+  const milk = lineRow(page, 'MILK 2% 1L');
+  const repaired = await storedLine(request, receiptId, 'MILK 2% 1L');
+  expect(repaired).toMatchObject({ reviewState: 'bound', boundVia: 'manual' });
+
+  // A committed receipt offers repair, but nothing is in repair mode yet, and
+  // the printed text is not editable.
+  const repairRow = page.locator('.repair-row');
+  await expect(page.locator('.receipt-lines input.line-printed')).toHaveCount(
+    0,
+  );
+  await repairRow.getByRole('button', { name: 'Repair binding' }).click();
+  await expect(page.locator('.repair-confirm')).toContainText(
+    'aliases follow the fix',
+  );
+  await expect(page.locator('.receipt-line.repairing')).toHaveCount(0);
+
+  // Cancelling leaves everything untouched: still no repair controls, still the
+  // binding the commit left behind.
+  await repairRow.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.locator('.repair-confirm')).toHaveCount(0);
+  await expect(page.locator('.receipt-line.repairing')).toHaveCount(0);
+  await expect(milk.locator('.line-bound-item')).toHaveText(milkName);
+
+  // Entering the mode is the explicit second tap.
+  await repairRow.getByRole('button', { name: 'Repair binding' }).click();
+  await repairRow.getByRole('button', { name: 'Start repair' }).click();
+  await expect(page.locator('.repair-banner')).toContainText(
+    'photo stay as committed',
+  );
+  await expect(milk).toHaveClass(/repairing/);
+  // The raw artifacts are frozen even here.
+  await expect(page.locator('.receipt-lines input.line-printed')).toHaveCount(
+    0,
+  );
+
+  // Re-bind the line to the other item through the repair search.
+  await milk.getByLabel('Find item').fill(ryeName);
+  await milk
+    .locator('.item-matches button.match-button', { hasText: ryeName })
+    .click();
+  await expect(milk.locator('.line-bound-item')).toHaveText(ryeName, {
+    timeout: 15_000,
+  });
+
+  const household = await readHousehold(request);
+  const ryeId = household.catalogItems.find(
+    (item) => item.name === ryeName,
+  )?.id;
+  expect(ryeId).toBeDefined();
+  expect(await storedLine(request, receiptId, 'MILK 2% 1L')).toMatchObject({
+    catalogItemId: ryeId,
+    reviewState: 'bound',
+    boundVia: 'manual',
+  });
+
+  // The correction leaves the mode, and the raw receipt is otherwise untouched.
+  await repairRow.getByRole('button', { name: 'Done repairing' }).click();
+  await expect(page.locator('.repair-banner')).toHaveCount(0);
+  await expect(page.locator('.receipt-line.repairing')).toHaveCount(0);
+  await expect(page.locator('.receipt-detail .status-chip')).toHaveText(
+    'Committed',
+  );
+  await expect(milk.locator('.line-printed')).toHaveText('MILK 2% 1L');
+  await expect(page.locator('.ocr-text')).toContainText('MILK 2% 1L');
+  await expect(page.locator('.receipt-image img')).toHaveCount(1);
+  const after = (await (
+    await request.get(`/api/receipts/${receiptId}`)
+  ).json()) as { imageAvailable: boolean; ocrText: string | null };
+  expect(after.imageAvailable).toBe(true);
+  expect(after.ocrText).toContain('MILK 2% 1L');
+
+  // The alias state followed the repair: the wording this line taught for the
+  // wrong item no longer binds, and the corrected item now claims it.
+  const overview = (await (await request.get('/api/aliases')).json()) as {
+    items: {
+      name: string;
+      aliases: { aliasText: string; deletedAt: string | null }[];
+    }[];
+  };
+  const liveAlias = (name: string) =>
+    overview.items
+      .find((item) => item.name === name)
+      ?.aliases.find(
+        (alias) => alias.aliasText === 'MILK 2% 1L' && alias.deletedAt === null,
+      );
+
+  expect(liveAlias(ryeName)).toBeDefined();
+  expect(liveAlias(milkName)).toBeUndefined();
 });
 
 test('discards a receipt: the photo goes, the text stays, the bytes capture again', async ({

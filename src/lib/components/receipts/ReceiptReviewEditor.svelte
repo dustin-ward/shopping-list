@@ -21,6 +21,14 @@
     fetchReceiptDetail,
     saveReceiptReview,
   } from '../../client/receipt-review';
+  import {
+    repairBindPatch,
+    repairErrorMessage,
+    repairReceiptInput,
+    repairStatePatch,
+    repairSuggestionPatch,
+    submitReceiptRepair,
+  } from '../../client/receipt-repair';
   import { isReceiptInFlight } from '../../client/receipt-display';
   import ReceiptLines from './ReceiptLines.svelte';
   import ReceiptStorePicker from './ReceiptStorePicker.svelte';
@@ -30,8 +38,10 @@
     ReceiptDetailLine,
     ReceiptLinePatch,
     ReceiptSuggestion,
+    RepairLinePatch,
     UpdateReceiptInput,
   } from '../../shared/schemas';
+  import type { ReviewStateAction } from '../../shared/receipt-review';
 
   // The review surface's interactive base: the receipt's image, its lines with
   // their review states, bindings and edits, the store it belongs to, and the
@@ -68,6 +78,15 @@
   const discardable = $derived(
     writable && detail.status !== 'committed' && detail.status !== 'discarded',
   );
+  /**
+   * Repair (ticket 16) is offered on a committed receipt the page can write —
+   * and only when there is an item line whose binding it could move.
+   */
+  const canRepair = $derived(
+    writable &&
+      detail.status === 'committed' &&
+      detail.lines.some((line) => line.isItemChunk),
+  );
 
   let imageFailed = $state(false);
   let saving = $state(false);
@@ -78,6 +97,9 @@
   let actionError = $state('');
   /** Discard asks twice: the first tap only arms the confirm. */
   let confirmingDiscard = $state(false);
+  /** Repair is an explicit mode, entered through its own two-tap confirm. */
+  let repairing = $state(false);
+  let confirmingRepair = $state(false);
   /** Every write to this receipt is refused while one is in flight. */
   const busy = $derived(saving || committing || discarding);
   /**
@@ -184,7 +206,9 @@
       onSaved(updated);
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
-        await reloadAfterConflict();
+        await reloadAfterConflict(
+          'This receipt changed on another device — the latest version is shown.',
+        );
       } else {
         saveError =
           error instanceof ApiError
@@ -197,14 +221,84 @@
   }
 
   /** A conflict means someone else moved the receipt on: show their copy. */
-  async function reloadAfterConflict(): Promise<void> {
+  async function reloadAfterConflict(message: string): Promise<void> {
+    saveError = message;
     try {
       onSaved(await fetchReceiptDetail(detail.id));
-      saveError =
-        'This receipt changed on another device — the latest version is shown.';
     } catch {
       saveError = 'This receipt changed elsewhere. Refresh to see the latest.';
     }
+  }
+
+  /**
+   * Repair one committed line's binding. It rides the same save queue and
+   * carries the `updatedAt` the editor last saw, so a correction made from a
+   * stale view is refused rather than landing on someone else's newer one.
+   */
+  function submitRepair(lineId: string, patch: RepairLinePatch): void {
+    queue = queue.then(() => saveRepair(lineId, patch));
+  }
+
+  async function saveRepair(
+    lineId: string,
+    patch: RepairLinePatch,
+  ): Promise<void> {
+    saving = true;
+    try {
+      const updated = await submitReceiptRepair(
+        detail.id,
+        repairReceiptInput(detail, lineId, patch),
+      );
+      saveError = '';
+      onSaved(updated);
+    } catch (error) {
+      const message = repairErrorMessage(error);
+      if (error instanceof ApiError && error.code === 'RECEIPT_CHANGED') {
+        await reloadAfterConflict(message);
+      } else {
+        saveError = message;
+      }
+    } finally {
+      saving = false;
+    }
+  }
+
+  /** A tap that sets an unidentified state; the same state is not a repair. */
+  function repairState(lineId: string, action: ReviewStateAction): void {
+    const line = detail.lines.find((candidate) => candidate.id === lineId);
+    if (!line) return;
+    const patch = repairStatePatch(line, action);
+    if (patch) submitRepair(lineId, patch);
+  }
+
+  /** A tap on an offered candidate; the line's own chip is not a repair. */
+  function repairSuggestion(
+    line: ReceiptDetailLine,
+    suggestion: ReceiptSuggestion,
+  ): void {
+    const patch = repairSuggestionPatch(line, suggestion);
+    if (patch) submitRepair(line.id, patch);
+  }
+
+  /** A pick from the item search; the line's current item is not a repair. */
+  function repairBind(lineId: string, catalogItemId: string): void {
+    const line = detail.lines.find((candidate) => candidate.id === lineId);
+    if (!line) return;
+    const patch = repairBindPatch(line, catalogItemId);
+    if (patch) submitRepair(lineId, patch);
+  }
+
+  /** Enter repair mode: explicit, and only from the confirm. */
+  function startRepair(): void {
+    confirmingRepair = false;
+    repairing = true;
+    saveError = '';
+    actionError = '';
+  }
+
+  /** Leave repair mode; every correction already landed on the server. */
+  function stopRepair(): void {
+    repairing = false;
   }
 
   /**
@@ -311,11 +405,62 @@
 {/if}
 
 <h3 class="detail-subheading">Parsed lines</h3>
+{#if canRepair}
+  <div class="repair-row">
+    {#if repairing}
+      <p class="repair-banner" role="status">
+        Repairing the binding — the printed text, the prices and the photo stay
+        as committed.
+      </p>
+      <button
+        type="button"
+        class="repair-done-button"
+        disabled={busy}
+        onclick={stopRepair}
+      >
+        Done repairing
+      </button>
+    {:else if confirmingRepair}
+      <p class="repair-confirm" role="status">
+        Repair a line's binding? Price history and aliases follow the fix; the
+        printed text, the prices and the photo are kept.
+      </p>
+      <div class="repair-actions">
+        <button
+          type="button"
+          class="confirm-repair-button"
+          disabled={busy}
+          onclick={startRepair}
+        >
+          Start repair
+        </button>
+        <button
+          type="button"
+          class="repair-cancel-button"
+          disabled={busy}
+          onclick={() => (confirmingRepair = false)}
+        >
+          Cancel
+        </button>
+      </div>
+    {:else}
+      <button
+        type="button"
+        class="repair-button"
+        disabled={busy}
+        onclick={() => (confirmingRepair = true)}
+      >
+        Repair binding
+      </button>
+    {/if}
+  </div>
+{/if}
 {#if detail.lines.length}
   <ReceiptLines
     lines={detail.lines}
     currency={detail.currency}
     {editable}
+    {repairing}
     saving={busy}
     {catalogItems}
     drafts={itemDrafts}
@@ -325,6 +470,9 @@
     onDraftItem={draftItem}
     onDraftName={renameDraftItem}
     onRelease={releaseLine}
+    onRepairState={repairState}
+    onRepairSuggestion={repairSuggestion}
+    onRepairBind={repairBind}
   />
   {#if detail.status === 'review' && !writable}
     <p class="muted">
@@ -503,7 +651,11 @@
 
   .discard-button,
   .confirm-discard-button,
-  .discard-cancel-button {
+  .discard-cancel-button,
+  .repair-button,
+  .confirm-repair-button,
+  .repair-cancel-button,
+  .repair-done-button {
     min-height: 2.4rem;
     padding: 0.5rem 0.8rem;
     border: 1px solid var(--line-bright);
@@ -524,9 +676,41 @@
 
   .discard-button:disabled,
   .confirm-discard-button:disabled,
-  .discard-cancel-button:disabled {
+  .discard-cancel-button:disabled,
+  .repair-button:disabled,
+  .confirm-repair-button:disabled,
+  .repair-cancel-button:disabled,
+  .repair-done-button:disabled {
     cursor: not-allowed;
     opacity: 0.52;
+  }
+
+  /* Repair is a mode, so it sits above the lines it makes interactive. */
+  .repair-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .confirm-repair-button {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* The confirm reads before the buttons, so the tap cannot be a surprise. */
+  .repair-confirm,
+  .repair-banner {
+    flex: 1 0 100%;
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+
+  .repair-actions {
+    display: flex;
+    gap: 0.5rem;
   }
 
   .ocr-text {

@@ -12,6 +12,7 @@ import {
   type ReceiptListItem,
   type ReceiptListPage,
   type ReceiptStatus,
+  type RepairReceiptInput,
   type UpdateReceiptInput,
 } from '../../shared/schemas';
 import { getConfig } from '../config.js';
@@ -35,6 +36,7 @@ import { imageContentType } from '../receipts/ocr-engine';
 import { ocrTextFromJson } from '../receipts/ocr-text';
 import { suggestionsForLines } from '../receipts/matcher';
 import type { ParsedReceipt } from '../receipts/parser';
+import { planLineRepair, type LineAlias } from '../receipts/repair-plan';
 import { resolveLineEdit, type EditableLine } from '../receipts/review-edits';
 import { bindTierOneMatches, loadMatchContext } from './receipt-matching';
 import {
@@ -972,6 +974,148 @@ export function discardReceipt(
   if (purge) rmSync(join(storageDir, purge), { force: true });
 
   return getReceiptDetail(receiptId, database);
+}
+
+// ---------------------------------------------------------------------------
+// Repair. A committed receipt is canonical data, so correcting a line's binding
+// is a deliberate act of its own rather than a review edit the PATCH route would
+// take (ticket 16). Everything raw stays: only the binding moves.
+// ---------------------------------------------------------------------------
+
+/**
+ * Correct the binding of one or more lines on a committed receipt, in one
+ * transaction. Only a committed receipt can be repaired — the review `PATCH`
+ * stays review-only, so the two write paths never overlap — and the caller's
+ * `updatedAt` must match, as it must for every other write to a receipt.
+ *
+ * The consequences are what make a repair more than a column write: the aliases
+ * the repaired line taught for another item stop binding, and the corrected
+ * binding teaches its printed text (`planLineRepair`), so price history and
+ * alias state both follow the correction. `display_name`, `raw_text`,
+ * `ocr_json` and the image are untouched, and a repair creates nothing
+ * snapshot-visible — it never moves `app_state.revision`.
+ */
+export function repairReceipt(
+  receiptId: string,
+  input: RepairReceiptInput,
+  database: SqliteDatabase = getRawDatabase(),
+): ReceiptDetail {
+  const listId = currentListId(database);
+
+  return runWriteTransaction(database, () => {
+    const row = database
+      .prepare(
+        `SELECT id, status, updated_at AS updatedAt FROM receipts
+          WHERE id = ? AND list_id = ?`,
+      )
+      .get(receiptId, listId) as
+      { id: string; status: ReceiptStatus; updatedAt: string } | undefined;
+    if (!row) throw notFound('Receipt not found.');
+    if (row.status !== 'committed') {
+      throw conflict(
+        'RECEIPT_NOT_COMMITTED',
+        `Only a committed receipt can be repaired; this one is ${row.status}.`,
+        { status: row.status },
+      );
+    }
+    assertReceiptUpdatedAt(receiptId, row.updatedAt, input.expectedUpdatedAt);
+
+    const now = timestampNow();
+    for (const patch of input.lines) {
+      const lineRow = database
+        .prepare(
+          `SELECT id, raw_text, quantity_real, quantity_text, quantity_unit,
+                  unit_price_minor, total_price_minor, review_state,
+                  catalog_item_id, bound_via, bound_rank, is_item_chunk
+             FROM receipt_lines
+            WHERE id = ? AND receipt_id = ?`,
+        )
+        .get(patch.id, receiptId) as
+        (EditableLineRow & { id: string; is_item_chunk: number }) | undefined;
+      if (!lineRow?.is_item_chunk) {
+        throw badRequest(
+          'INVALID_LINE',
+          'Only an item line on this receipt can be repaired.',
+        );
+      }
+
+      const repair = planLineRepair(
+        { id: lineRow.id, ...toEditableLine(lineRow) },
+        patch,
+        aliasesTaughtBy(database, listId, lineRow.id),
+      );
+      if (repair.catalogItemId) {
+        requireLiveCatalogItem(database, listId, repair.catalogItemId);
+      }
+
+      database
+        .prepare(
+          `UPDATE receipt_lines
+              SET review_state = ?, catalog_item_id = ?, bound_via = ?,
+                  bound_rank = ?, updated_at = ?
+            WHERE id = ?`,
+        )
+        .run(
+          repair.reviewState,
+          repair.catalogItemId,
+          repair.boundVia,
+          repair.boundRank,
+          now,
+          repair.lineId,
+        );
+
+      retractAliases(database, repair.retractAliasIds, now);
+      if (repair.learnAlias && repair.catalogItemId) {
+        learnAlias(
+          database,
+          listId,
+          repair.catalogItemId,
+          { lineId: repair.lineId, ...repair.learnAlias },
+          now,
+        );
+      }
+    }
+
+    // The guard token is the receipt's `updated_at`, so every accepted repair
+    // moves it — as every accepted review edit does.
+    database
+      .prepare('UPDATE receipts SET updated_at = ? WHERE id = ?')
+      .run(now, receiptId);
+
+    return getReceiptDetail(receiptId, database);
+  });
+}
+
+/** The live aliases one line taught: the repair may retract these. */
+function aliasesTaughtBy(
+  database: SqliteDatabase,
+  listId: string,
+  lineId: string,
+): LineAlias[] {
+  return database
+    .prepare(
+      `SELECT id, catalog_item_id AS catalogItemId
+         FROM item_aliases
+        WHERE list_id = ? AND created_by_receipt_line_id = ? AND deleted_at IS NULL`,
+    )
+    .all(listId, lineId) as LineAlias[];
+}
+
+/**
+ * Soft-delete the aliases the repaired line no longer backs. The row survives as
+ * the audit trail (`ADR 0003`), and a row that was already deleted keeps its own
+ * `deleted_at`: that timestamp is the record of when it stopped binding.
+ */
+function retractAliases(
+  database: SqliteDatabase,
+  aliasIds: readonly string[],
+  now: string,
+): void {
+  const retract = database.prepare(
+    `UPDATE item_aliases SET deleted_at = ?, updated_at = ?
+      WHERE id = ? AND deleted_at IS NULL`,
+  );
+  for (const aliasId of aliasIds) retract.run(now, now, aliasId);
 }
 
 /**

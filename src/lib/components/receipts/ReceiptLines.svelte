@@ -34,10 +34,16 @@
   // controls are the paths a reviewer can take without choosing an item, and the
   // item picker searches the household's items or drafts a new one inline.
   // Parked rows stay parser-settled and read-only.
+  //
+  // `repairing` is the committed receipt's binding-only mode (ticket 16): the
+  // row's raw artifacts are frozen, a state control *sets* the state instead of
+  // toggling it (a repair cannot release a line to `unreviewed`), and the item
+  // picker searches but never drafts or releases. Only an item row repairs.
   let {
     lines,
     currency = null,
     editable = false,
+    repairing = false,
     saving = false,
     catalogItems = [],
     drafts = {},
@@ -47,10 +53,14 @@
     onDraftItem,
     onDraftName,
     onRelease,
+    onRepairState,
+    onRepairSuggestion,
+    onRepairBind,
   }: {
     lines: readonly ReceiptDetailLine[];
     currency?: string | null;
     editable?: boolean;
+    repairing?: boolean;
     saving?: boolean;
     catalogItems?: readonly CatalogItemOption[];
     /** Inline-created item names, by line id; empty until a reviewer drafts one. */
@@ -64,6 +74,13 @@
     onDraftItem?: (lineId: string) => void;
     onDraftName?: (lineId: string, name: string) => void;
     onRelease?: (lineId: string) => void;
+    /** Repair-mode controls, on a committed receipt's item rows. */
+    onRepairState?: (lineId: string, action: ReviewStateAction) => void;
+    onRepairSuggestion?: (
+      line: ReceiptDetailLine,
+      suggestion: ReceiptSuggestion,
+    ) => void;
+    onRepairBind?: (lineId: string, catalogItemId: string) => void;
   } = $props();
 
   const UNITS = ['lb', 'kg', 'oz', 'g', 'l', 'ml', 'ea'] as const;
@@ -138,10 +155,12 @@
       {@const suggestions = line.suggestions ?? []}
       {@const ambiguousHint = ambiguousLineHint(line)}
       {@const editableLine = editable && line.isItemChunk}
+      {@const repairLine = repairing && line.isItemChunk}
       <li
         class="receipt-line"
         class:parked={view.parked}
         class:editing={editableLine}
+        class:repairing={repairLine}
       >
         {#if editableLine}
           <form
@@ -304,6 +323,39 @@
               >
             {/if}
           </div>
+          {#if repairLine}
+            <!-- A repair sets the state; it cannot hand the line back to the
+                 commit gate, so the state the line already holds is inert. -->
+            <div class="line-actions" role="group" aria-label="Repair state">
+              <button
+                type="button"
+                class="state-button"
+                class:active={line.reviewState === 'unknown'}
+                aria-pressed={line.reviewState === 'unknown'}
+                disabled={saving || line.reviewState === 'unknown'}
+                onclick={() => onRepairState?.(line.id, 'unknown')}
+              >
+                Can't identify
+              </button>
+              <button
+                type="button"
+                class="state-button"
+                class:active={line.reviewState === 'skipped'}
+                aria-pressed={line.reviewState === 'skipped'}
+                disabled={saving || line.reviewState === 'skipped'}
+                onclick={() => onRepairState?.(line.id, 'skipped')}
+              >
+                Skip
+              </button>
+            </div>
+            <ReceiptItemPicker
+              {line}
+              {catalogItems}
+              repairing
+              disabled={saving}
+              onBind={(catalogItemId) => onRepairBind?.(line.id, catalogItemId)}
+            />
+          {/if}
         {/if}
         {#if suggestions.length}
           <ul class="line-suggestions" aria-label="Suggested items">
@@ -314,9 +366,16 @@
                 <button
                   type="button"
                   class="suggestion-button"
-                  title={bound ? `Release ${suggestion.name}` : tier.hint}
-                  disabled={!editable || saving}
-                  onclick={() => onSuggestion?.(line, suggestion)}
+                  title={!repairLine && bound
+                    ? `Release ${suggestion.name}`
+                    : tier.hint}
+                  disabled={(!editable && !repairLine) ||
+                    saving ||
+                    (repairLine && bound)}
+                  onclick={() =>
+                    repairLine
+                      ? onRepairSuggestion?.(line, suggestion)
+                      : onSuggestion?.(line, suggestion)}
                 >
                   <span class="suggestion-name">{suggestion.name}</span>
                   <span class="suggestion-tier">{tier.label}</span>
@@ -365,7 +424,8 @@
   }
 
   /* An item row the reviewer can correct, so it reads as a form. */
-  .receipt-line.editing {
+  .receipt-line.editing,
+  .receipt-line.repairing {
     flex-direction: column;
     align-items: stretch;
     gap: 0.5rem;

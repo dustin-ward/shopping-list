@@ -13,11 +13,18 @@
   // something. A draft is not a catalog row — it is the reviewer's name, kept in
   // the editor until commit — while the line's `new` state is a review edit like
   // any other.
+  //
+  // `repairing` is the same search in the committed receipt's repair mode
+  // (ticket 16): the box is always there, the item the line sits on is named
+  // beside it, and there is no draft to create and nothing to release — a
+  // committed line's states are bound, unknown and skipped, so a pick can only
+  // move the binding.
   let {
     line,
     catalogItems = [],
     draftName = '',
     disabled = false,
+    repairing = false,
     onBind,
     onDraft,
     onDraftName,
@@ -27,10 +34,11 @@
     catalogItems?: readonly CatalogItemOption[];
     draftName?: string;
     disabled?: boolean;
+    repairing?: boolean;
     onBind: (catalogItemId: string) => void;
-    onDraft: () => void;
-    onDraftName: (name: string) => void;
-    onRelease: () => void;
+    onDraft?: () => void;
+    onDraftName?: (name: string) => void;
+    onRelease?: () => void;
   } = $props();
 
   /**
@@ -55,7 +63,49 @@
   const draftLabel = $derived(draftName || itemDraftName(line));
 </script>
 
-{#if line.reviewState === 'bound'}
+{#snippet itemSearch(createDraft: boolean)}
+  <label class="picker-field">
+    <span class="picker-label">Find item</span>
+    <input
+      class="item-search-input"
+      aria-label="Find item"
+      placeholder="Search items…"
+      value={searchText}
+      oninput={(event) => (typed = event.currentTarget.value)}
+    />
+  </label>
+  <div class="item-matches">
+    {#each matches as item (item.id)}
+      <button
+        type="button"
+        class="picker-button match-button"
+        {disabled}
+        onclick={() => onBind(item.id)}
+      >
+        {item.name}
+      </button>
+    {/each}
+    {#if createDraft}
+      <button
+        type="button"
+        class="picker-button draft-button"
+        {disabled}
+        onclick={() => onDraft?.()}
+      >
+        Create new item
+      </button>
+    {/if}
+  </div>
+{/snippet}
+
+{#if repairing}
+  <div class="item-search repair-search">
+    {#if boundName}
+      <span class="binding-item" aria-label="Current item">{boundName}</span>
+    {/if}
+    {@render itemSearch(false)}
+  </div>
+{:else if line.reviewState === 'bound'}
   <div class="item-binding">
     <span class="binding-item"
       >{boundName ?? line.parsedName ?? 'Bound item'}</span
@@ -64,7 +114,7 @@
       type="button"
       class="picker-button release-button"
       {disabled}
-      onclick={onRelease}
+      onclick={() => onRelease?.()}
     >
       Release
     </button>
@@ -77,50 +127,21 @@
         class="draft-item-name"
         aria-label="New item name"
         value={draftLabel}
-        oninput={(event) => onDraftName(event.currentTarget.value)}
+        oninput={(event) => onDraftName?.(event.currentTarget.value)}
       />
     </label>
     <button
       type="button"
       class="picker-button release-button"
       {disabled}
-      onclick={onRelease}
+      onclick={() => onRelease?.()}
     >
       Remove draft
     </button>
   </div>
 {:else}
   <div class="item-search">
-    <label class="picker-field">
-      <span class="picker-label">Find item</span>
-      <input
-        class="item-search-input"
-        aria-label="Find item"
-        placeholder="Search items…"
-        value={searchText}
-        oninput={(event) => (typed = event.currentTarget.value)}
-      />
-    </label>
-    <div class="item-matches">
-      {#each matches as item (item.id)}
-        <button
-          type="button"
-          class="picker-button match-button"
-          {disabled}
-          onclick={() => onBind(item.id)}
-        >
-          {item.name}
-        </button>
-      {/each}
-      <button
-        type="button"
-        class="picker-button draft-button"
-        {disabled}
-        onclick={() => onDraft()}
-      >
-        Create new item
-      </button>
-    </div>
+    {@render itemSearch(true)}
   </div>
 {/if}
 

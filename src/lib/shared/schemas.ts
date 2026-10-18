@@ -437,6 +437,66 @@ export const commitReceiptSchema = z
   })
   .strict();
 
+/**
+ * The states a repair can leave a committed line in. `unreviewed` is not one of
+ * them: a committed receipt's item lines have all been decided, and handing one
+ * back to the commit gate would ask a question the receipt has already answered.
+ */
+export const receiptRepairStateSchema = z.enum(['bound', 'unknown', 'skipped']);
+
+/**
+ * One committed line's repair: the binding half of a review edit and nothing
+ * else. The printed text, quantities, prices, store, `ocr_json` and the image
+ * stay exactly as committed — a repair moves the binding, never a raw artifact —
+ * and `display_name` is never rewritten (`ADR 0003`). Naming an item is naming
+ * the state, exactly as the review contract requires.
+ *
+ * Provenance is narrower than the review contract's: a repair is a human act, so
+ * it can record a pick (`manual`) or an accepted chip (`suggested`) and nothing
+ * else — `auto` would dress a correction up as the matcher's own work, and
+ * `created` names a draft a committed receipt no longer has. A line the repair
+ * leaves on the item it already sits on keeps the provenance it was committed
+ * with; only what the patch itself names is checked here.
+ */
+export const receiptRepairLineSchema = z
+  .object({
+    id: uuidSchema,
+    reviewState: receiptRepairStateSchema.optional(),
+    catalogItemId: uuidSchema.nullable().optional(),
+    boundVia: z.enum(['manual', 'suggested']).nullable().optional(),
+    boundRank: z.number().int().min(1).nullable().optional(),
+  })
+  .strict()
+  .refine(
+    (line) =>
+      line.reviewState !== undefined || line.catalogItemId !== undefined,
+    { message: 'A repair names the state or the item it corrects.' },
+  );
+
+/**
+ * `POST /api/receipts/[id]/repair`: the explicit repair mode for a committed
+ * receipt, a route of its own rather than a flag on the review `PATCH` (which
+ * stays review-only). Guarded by the receipt's `updated_at`, the same guard
+ * every review write carries.
+ */
+export const repairReceiptSchema = z
+  .object({
+    expectedUpdatedAt: z.string().trim().min(1).max(40),
+    lines: z
+      .array(receiptRepairLineSchema)
+      .min(1)
+      .max(1000)
+      .superRefine((lines, ctx) => {
+        if (new Set(lines.map((line) => line.id)).size !== lines.length) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'Line IDs must be unique.',
+          });
+        }
+      }),
+  })
+  .strict();
+
 /** `POST /api/receipts`: 201 for a new capture, 200 for a deduplicated one. */
 export const receiptUploadResponseSchema = z.object({
   id: uuidSchema,
@@ -472,5 +532,10 @@ export type AliasOverview = z.infer<typeof aliasOverviewSchema>;
 export type ReceiptLineEdit = z.infer<typeof receiptLineEditSchema>;
 export type UpdateReceiptInput = z.infer<typeof updateReceiptSchema>;
 export type CommitReceiptInput = z.infer<typeof commitReceiptSchema>;
+export type ReceiptRepairState = z.infer<typeof receiptRepairStateSchema>;
+export type ReceiptRepairLineEdit = z.infer<typeof receiptRepairLineSchema>;
+export type RepairReceiptInput = z.infer<typeof repairReceiptSchema>;
+/** One line's repair without the id: what a row's controls hand to its parent. */
+export type RepairLinePatch = Omit<ReceiptRepairLineEdit, 'id'>;
 /** One line's edits without the id: what a row's form hands to its parent. */
 export type ReceiptLinePatch = Omit<ReceiptLineEdit, 'id'>;
