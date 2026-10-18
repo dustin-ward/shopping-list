@@ -1,0 +1,164 @@
+{
+  "parseVersion": 1,
+  "lines": [
+    {
+      "isItemChunk": false,
+      "rawText": "HARBOUR MARKET",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "45 DOCK ROAD BAYSIDE",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "TEL 555-0188",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "2026-10-16 09:15",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "FLOUR TORTILLAS 10CT",
+      "parsedName": "FLOUR TORTILLAS 10CT",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 389,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "ORG BABY SPINACH 160Z CLAMSHELL",
+      "parsedName": "ORG BABY SPINACH 160Z CLAMSHELL",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 599,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "GREEK YOGURT PLAIN 320Z TUB",
+      "parsedName": "GREEK YOGURT PLAIN 320Z TUB",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 679,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "SPARKLING WATER 12PK LIME",
+      "parsedName": "SPARKLING WATER 12PK LIME",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 749,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "ALMOND MILK UNSWEETENED 640Z",
+      "parsedName": "ALMOND MILK UNSWEETENED 640Z",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 429,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "SUBTOTAL",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 2845,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "TAX",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 178,
+      "confidence": 0.92
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "TOTAL",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 3023,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "DEBIT",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 3023,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "SAVE WITH OUR APP",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.98
+    }
+  ],
+  "subtotalMinor": 2845,
+  "taxMinor": 178,
+  "totalMinor": 3023,
+  "deltaMinor": 0,
+  "warnings": []
+}

@@ -1,0 +1,128 @@
+{
+  "pages": [
+    {
+      "lines": [
+        {
+          "box": [349.0, 45.6, 551.0, 62.9],
+          "text": "HARBOUR MARKET",
+          "conf": 0.9975
+        },
+        {
+          "box": [328.2, 71.3, 570.0, 86.2],
+          "text": "45 DOCK ROAD BAYSIDE",
+          "conf": 0.9866
+        },
+        {
+          "box": [375.7, 97.9, 522.6, 113.1],
+          "text": "TEL 555-0188",
+          "conf": 0.9992
+        },
+        {
+          "box": [43.4, 125.2, 248.4, 140.5],
+          "text": "2026-10-16 09:15",
+          "conf": 0.9996
+        },
+        {
+          "box": [45.2, 178.6, 285.3, 193.8],
+          "text": "FLOUR TORTILLAS 10CT",
+          "conf": 0.9897
+        },
+        { "box": [808.0, 178.8, 854.9, 194.6], "text": "3.89", "conf": 0.9994 },
+        {
+          "box": [43.5, 206.1, 237.8, 221.0],
+          "text": "ORG BABY SPINACH",
+          "conf": 0.996
+        },
+        {
+          "box": [45.1, 232.7, 213.3, 248.1],
+          "text": "160Z CLAMSHELL",
+          "conf": 0.9954
+        },
+        { "box": [808.1, 232.9, 854.8, 248.0], "text": "5.99", "conf": 0.9997 },
+        {
+          "box": [45.2, 260.0, 260.7, 275.2],
+          "text": "GREEK YOGURT PLAIN",
+          "conf": 0.9907
+        },
+        {
+          "box": [43.4, 287.1, 141.1, 302.2],
+          "text": "320Z TUB",
+          "conf": 0.9894
+        },
+        { "box": [808.0, 286.9, 854.9, 302.4], "text": "6.79", "conf": 0.9998 },
+        {
+          "box": [43.5, 314.0, 225.5, 328.9],
+          "text": "SPARKLING WATER",
+          "conf": 0.9998
+        },
+        {
+          "box": [45.2, 341.2, 153.4, 356.0],
+          "text": "12PK LIME",
+          "conf": 0.9748
+        },
+        { "box": [808.0, 340.6, 854.9, 356.5], "text": "7.49", "conf": 0.9969 },
+        {
+          "box": [43.4, 367.6, 320.5, 383.1],
+          "text": "ALMOND MILK UNSWEETENED",
+          "conf": 0.9843
+        },
+        { "box": [43.5, 395.3, 93.6, 409.8], "text": "640Z", "conf": 0.9801 },
+        { "box": [808.0, 394.3, 854.9, 410.0], "text": "4.29", "conf": 0.9989 },
+        {
+          "box": [43.6, 449.3, 137.5, 463.4],
+          "text": "SUBTOTAL",
+          "conf": 0.9997
+        },
+        {
+          "box": [795.7, 448.8, 854.9, 464.2],
+          "text": "28.45",
+          "conf": 0.9994
+        },
+        { "box": [43.6, 476.9, 81.2, 490.9], "text": "TAX", "conf": 0.8407 },
+        { "box": [808.2, 476.3, 856.5, 490.9], "text": "1.78", "conf": 0.9997 },
+        { "box": [43.5, 503.3, 104.2, 517.9], "text": "TOTAL", "conf": 0.9868 },
+        {
+          "box": [795.8, 503.1, 856.6, 518.3],
+          "text": "30.23",
+          "conf": 0.9996
+        },
+        { "box": [43.5, 530.3, 104.1, 544.8], "text": "DEBIT", "conf": 0.9998 },
+        {
+          "box": [795.7, 529.5, 856.7, 545.4],
+          "text": "30.23",
+          "conf": 0.9998
+        },
+        {
+          "box": [43.4, 557.1, 250.1, 572.4],
+          "text": "SAVE WITH OUR APP",
+          "conf": 0.9787
+        }
+      ],
+      "blocks": [
+        {
+          "label": "Section-Header",
+          "bbox": [328.2, 45.6, 570.0, 113.1],
+          "text": "HARBOUR MARKET\n45 DOCK ROAD BAYSIDE\nTEL 555-0188"
+        },
+        {
+          "label": "Text",
+          "bbox": [43.4, 125.2, 248.4, 140.5],
+          "text": "2026-10-16 09:15"
+        },
+        {
+          "label": "Table",
+          "bbox": [43.4, 178.6, 856.7, 572.4],
+          "text": "FLOUR TORTILLAS 10CT\n3.89\nORG BABY SPINACH\n160Z CLAMSHELL\n5.99\nGREEK YOGURT PLAIN\n320Z TUB\n6.79\nSPARKLING WATER\n12PK LIME\n7.49\nALMOND MILK UNSWEETENED\n640Z\n4.29\nSUBTOTAL\n28.45\nTAX\n1.78\nTOTAL\n30.23\nDEBIT\n30.23\nSAVE WITH OUR APP"
+        }
+      ],
+      "rotation": 0,
+      "skew": 0.0,
+      "source": "ocr"
+    }
+  ],
+  "engine": {
+    "name": "indra-ocr",
+    "model_tag": "v3.1.1",
+    "package_version": "0.3.2"
+  }
+}

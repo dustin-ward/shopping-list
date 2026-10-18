@@ -1,0 +1,208 @@
+{
+  "parseVersion": 1,
+  "lines": [
+    {
+      "isItemChunk": false,
+      "rawText": "CORNER MARKET",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "123 MAIN STREET",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "SPRINGFIELD IL 62704",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "TEL 555-0100",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.98
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "2026-10-17 14:32 REG 4",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "MILK 2% 1L",
+      "parsedName": "MILK 2% 1L",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 349,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "SOURDOUGH BREAD",
+      "parsedName": "SOURDOUGH BREAD",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 499,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "CUCUMBERS 2 @ 1.50",
+      "parsedName": "CUCUMBERS",
+      "quantityReal": 2,
+      "quantityText": "2 @ 1.50",
+      "quantityUnit": "ea",
+      "unitPriceMinor": 150,
+      "totalPriceMinor": 300,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "GALA APPLES 3LB",
+      "parsedName": "GALA APPLES 3LB",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 597,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "CHEDDAR CHEESE 80Z",
+      "parsedName": "CHEDDAR CHEESE 80Z",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 649,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "BANANAS 2.15LB @ 0.59/LB",
+      "parsedName": "BANANAS",
+      "quantityReal": 2.15,
+      "quantityText": "2.15LB @ 0.59/LB",
+      "quantityUnit": "lb",
+      "unitPriceMinor": 59,
+      "totalPriceMinor": 127,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "EGGS LARGE DOZEN",
+      "parsedName": "EGGS LARGE DOZEN",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 429,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "PAPER TOWELS 6CT",
+      "parsedName": "PAPER TOWELS 6CT",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 999,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "SUBTOTAL",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 3949,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "TAX 6.25%",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 247,
+      "confidence": 0.96
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "TOTAL",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 4196,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "VISA ****1234",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 4196,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "THANK YOU FOR SHOPPING",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.99
+    }
+  ],
+  "subtotalMinor": 3949,
+  "taxMinor": 247,
+  "totalMinor": 4196,
+  "deltaMinor": 0,
+  "warnings": []
+}

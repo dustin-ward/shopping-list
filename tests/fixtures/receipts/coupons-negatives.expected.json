@@ -1,0 +1,188 @@
+{
+  "parseVersion": 1,
+  "lines": [
+    {
+      "isItemChunk": false,
+      "rawText": "RIVERSIDE GROCERY",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "88 CANAL ST",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "2026-10-15 18:40 CASHIER DANA",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "CHICKEN BREAST 2.50LB @ 4.99/LB",
+      "parsedName": "CHICKEN BREAST",
+      "quantityReal": 2.5,
+      "quantityText": "2.50LB @ 4.99/LB",
+      "quantityUnit": "lb",
+      "unitPriceMinor": 499,
+      "totalPriceMinor": 1248,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "TORTILLA CHIPS",
+      "parsedName": "TORTILLA CHIPS",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 419,
+      "confidence": 0.98
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "SALSA MEDIUM 160Z",
+      "parsedName": "SALSA MEDIUM 160Z",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 349,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "SODA 2 LITER",
+      "parsedName": "SODA 2 LITER",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 229,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "ORANGE JUICE 640Z",
+      "parsedName": "ORANGE JUICE 640Z",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 549,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "BOTTLE DEPOSIT 2 @ 0.10",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 20,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "STORE COUPON",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": -150,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "DIGITAL COUPON",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": -100,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "SUBTOTAL",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 2564,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "ТАX 8.00%",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 205,
+      "confidence": 0.92
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "TOTAL",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 2769,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "AMEX ****2001",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 2769,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "CHANGE",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 0,
+      "confidence": 1
+    }
+  ],
+  "subtotalMinor": 2564,
+  "taxMinor": 205,
+  "totalMinor": 2769,
+  "deltaMinor": 230,
+  "warnings": [
+    "the item lines total 27.94 but SUBTOTAL reads 25.64 (delta 2.30)"
+  ]
+}

@@ -20,6 +20,7 @@
     "test:watch": "vitest",
     "test:ocr": "python3 -m pytest ocr-sidecar",
     "test:e2e": "pnpm build && playwright test",
+    "fixtures:capture": "node scripts/capture-receipt-fixtures.mjs",
     "db:generate": "drizzle-kit generate",
     "db:check": "drizzle-kit check",
     "db:migrate": "node scripts/migrate.mjs",

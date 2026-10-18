@@ -1,0 +1,168 @@
+{
+  "parseVersion": 1,
+  "lines": [
+    {
+      "isItemChunk": false,
+      "rawText": "555-01",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "2026-10-17 4: G 4",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.89
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "MIK 2% 1L",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.81
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "SOURDOUGH BREA",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 1
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "UCUMBERS 2",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "GAL LA APPLES",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.97
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "HEDDAR CHEES",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.95
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "NANAS 2.1 5 9.",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.98
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "5",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.9
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "R 3",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.79
+    },
+    {
+      "isItemChunk": true,
+      "rawText": "AX",
+      "parsedName": "AX",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 625,
+      "confidence": 0.87
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "OTAL",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.99
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "TSA ****1234",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.83
+    },
+    {
+      "isItemChunk": false,
+      "rawText": "THANK YOU FOR SHOPPING",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": null,
+      "confidence": 0.98
+    }
+  ],
+  "subtotalMinor": null,
+  "taxMinor": null,
+  "totalMinor": null,
+  "deltaMinor": null,
+  "warnings": [
+    "no price column found; prices were read line by line",
+    "10 OCR lines carried no text",
+    "no subtotal or total found on the receipt"
+  ]
+}

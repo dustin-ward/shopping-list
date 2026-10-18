@@ -16,7 +16,14 @@ import {
 } from '../../src/lib/server/db/connection';
 import { migrateAndBootstrap } from '../../src/lib/server/db/lifecycle.js';
 import { openSqliteDatabase } from '../../src/lib/server/db/sqlite.js';
-import { createStubOcrEngine } from '../../src/lib/server/receipts/ocr-engine';
+import {
+  createStubOcrEngine,
+  type OcrEngine,
+} from '../../src/lib/server/receipts/ocr-engine';
+import {
+  parseReceiptOcr,
+  type ParsedReceiptLine,
+} from '../../src/lib/server/receipts/parser';
 import {
   startReceiptWorker,
   stopReceiptWorker,
@@ -29,7 +36,10 @@ import {
   sweepOrphanedReceipts,
   type ReceiptWorkerOptions,
 } from '../../src/lib/server/services/receipt-worker';
-import { acceptReceiptUpload } from '../../src/lib/server/services/receipts';
+import {
+  acceptReceiptUpload,
+  writeReceiptParse,
+} from '../../src/lib/server/services/receipts';
 
 type Database = ReturnType<typeof openSqliteDatabase>;
 type Row = Record<string, unknown>;
@@ -40,6 +50,26 @@ const fixturePath = resolve(
   'tests/fixtures/receipts/stub-ocr.json',
 );
 const fixtureJson = readFileSync(fixturePath, 'utf8');
+const cleanGroceryPath = resolve(
+  process.cwd(),
+  'tests/fixtures/receipts/clean-grocery.json',
+);
+const cleanGroceryJson = readFileSync(cleanGroceryPath, 'utf8');
+const cleanGroceryExpected = JSON.parse(
+  readFileSync(
+    resolve(
+      process.cwd(),
+      'tests/fixtures/receipts/clean-grocery.expected.json',
+    ),
+    'utf8',
+  ),
+) as {
+  lines: Record<string, unknown>[];
+  subtotalMinor: number;
+  taxMinor: number;
+  totalMinor: number;
+  warnings: string[];
+};
 
 let directory: string;
 let storageDir: string;
@@ -121,6 +151,57 @@ function receiptRow(id: string): Row {
          FROM receipts WHERE id = ?`,
     )
     .get(id) as Row;
+}
+
+/** The receipt's lines, in stored order, with the columns the parser fills. */
+function receiptLines(id: string): Row[] {
+  return database
+    .prepare(
+      `SELECT line_index, raw_text, parsed_name, quantity_real, quantity_text,
+              quantity_unit, unit_price_minor, total_price_minor,
+              is_item_chunk, confidence, review_state
+         FROM receipt_lines
+        WHERE receipt_id = ?
+        ORDER BY line_index`,
+    )
+    .all(id) as Row[];
+}
+
+/** A stored line as the persisted projection, for comparison with the parser. */
+function storedLineProjection(row: Row): Record<string, unknown> {
+  return {
+    isItemChunk: Boolean(row.is_item_chunk),
+    rawText: row.raw_text,
+    parsedName: row.parsed_name,
+    quantityReal: row.quantity_real,
+    quantityText: row.quantity_text,
+    quantityUnit: row.quantity_unit,
+    unitPriceMinor: row.unit_price_minor,
+    totalPriceMinor: row.total_price_minor,
+    confidence: row.confidence,
+  };
+}
+
+/** A parser line as the persisted projection, matching the golden fixtures. */
+function parsedLineProjection(
+  line: ParsedReceiptLine,
+): Record<string, unknown> {
+  return {
+    isItemChunk: line.isItemChunk,
+    rawText: line.rawText,
+    parsedName: line.parsedName,
+    quantityReal: line.quantityReal,
+    quantityText: line.quantityText,
+    quantityUnit: line.quantityUnit,
+    unitPriceMinor: line.unitPriceMinor,
+    totalPriceMinor: line.totalPriceMinor,
+    confidence: line.confidence,
+  };
+}
+
+/** An engine that returns one committed fixture payload, whatever the image. */
+function fixtureEngine(raw: string): OcrEngine {
+  return { extract: async () => ({ raw }) };
 }
 
 function tick(options: ReceiptWorkerOptions = {}) {
@@ -238,6 +319,87 @@ describe('worker claim', () => {
     expect(receiptRow(review).status).toBe('review');
     expect(receiptRow(failed).status).toBe('failed');
     expect(receiptRow(discarded).status).toBe('discarded');
+  });
+});
+
+describe('worker parsing', () => {
+  it('writes every parsed line and the receipt totals', async () => {
+    const id = insertReceipt();
+    writeImage(id);
+
+    await tick();
+
+    const expected = parseReceiptOcr(fixtureJson);
+    const rows = receiptLines(id);
+    expect(rows).toHaveLength(expected.lines.length);
+    expect(rows.map(storedLineProjection)).toEqual(
+      expected.lines.map(parsedLineProjection),
+    );
+    expect(rows.every((row) => row.review_state === 'unreviewed')).toBe(true);
+    expect(
+      database
+        .prepare(
+          `SELECT subtotal_minor, tax_minor, total_minor, parse_version,
+                  ocr_warnings, currency
+             FROM receipts WHERE id = ?`,
+        )
+        .get(id),
+    ).toEqual({
+      subtotal_minor: expected.subtotalMinor,
+      tax_minor: expected.taxMinor,
+      total_minor: expected.totalMinor,
+      parse_version: 1,
+      ocr_warnings: JSON.stringify(expected.warnings),
+      currency: 'USD',
+    });
+  });
+
+  it('lands a fixture receipt on the committed golden lines', async () => {
+    const id = insertReceipt();
+    writeImage(id);
+
+    await tick({ engine: fixtureEngine(cleanGroceryJson) });
+
+    expect(receiptLines(id).map(storedLineProjection)).toEqual(
+      cleanGroceryExpected.lines,
+    );
+    expect(
+      database
+        .prepare(
+          `SELECT subtotal_minor, tax_minor, total_minor, ocr_warnings
+             FROM receipts WHERE id = ?`,
+        )
+        .get(id),
+    ).toEqual({
+      subtotal_minor: cleanGroceryExpected.subtotalMinor,
+      tax_minor: cleanGroceryExpected.taxMinor,
+      total_minor: cleanGroceryExpected.totalMinor,
+      ocr_warnings: JSON.stringify(cleanGroceryExpected.warnings),
+    });
+  });
+
+  it('does not double a line when the same parse is written again', async () => {
+    const id = insertReceipt();
+    writeImage(id);
+    await tick();
+    const before = receiptLines(id);
+
+    writeReceiptParse(database, id, parseReceiptOcr(fixtureJson), 'USD');
+
+    expect(receiptLines(id)).toEqual(before);
+  });
+
+  it('parks and stores rows the parser could not read as item lines', async () => {
+    const id = insertReceipt();
+    writeImage(id);
+
+    await tick();
+
+    const parked = receiptLines(id).filter((row) => row.is_item_chunk !== 1);
+    expect(parked.length).toBeGreaterThan(0);
+    // Header text and the tender line are persisted too, never dropped.
+    expect(parked.map((row) => row.raw_text)).toContain('CORNER MARKET');
+    expect(parked.map((row) => row.raw_text)).toContain('VISA ****1234');
   });
 });
 

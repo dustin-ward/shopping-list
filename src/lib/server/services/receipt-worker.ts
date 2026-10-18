@@ -8,13 +8,14 @@ import {
   createStubOcrEngine,
   type OcrEngine,
 } from '../receipts/ocr-engine';
+import { parseReceiptOcr, type ParsedReceipt } from '../receipts/parser';
 import {
   currentListId,
   runWriteTransaction,
   timestampNow,
   type SqliteDatabase,
 } from './common';
-import type { ReceiptStatus } from './receipts';
+import { writeReceiptParse, type ReceiptStatus } from './receipts';
 
 /**
  * The queue worker. SQLite is the queue: one `pending` receipt is claimed per
@@ -193,7 +194,12 @@ export async function runReceiptWorkerTick(
         };
   }
 
-  finishClaim(database, claimed.id, { status: 'review', ocrJson: raw });
+  finishClaim(database, claimed.id, {
+    status: 'review',
+    ocrJson: raw,
+    parsed: parseReceiptOcr(raw),
+    currency: config.receiptCurrency,
+  });
   return { outcome: 'processed', receiptId: claimed.id };
 }
 
@@ -236,12 +242,19 @@ export function retryReceipt(
 }
 
 type ClaimOutcome =
-  | { status: 'review'; ocrJson: string }
+  | {
+      status: 'review';
+      ocrJson: string;
+      parsed: ParsedReceipt;
+      currency: string;
+    }
   | { status: 'pending' | 'failed'; lastError: string };
 
 /**
- * Write the terminal (or retryable) state of a claim. The `status = 'processing'`
- * guard keeps this from clobbering a row another writer already moved on.
+ * Write the terminal (or retryable) state of a claim, and — on success — the
+ * parser's output onto the receipt and its lines in the same transaction. The
+ * `status = 'processing'` guard keeps this from clobbering a row another writer
+ * already moved on; if the guard matches nothing, nothing else is written.
  */
 function finishClaim(
   database: SqliteDatabase,
@@ -249,23 +262,28 @@ function finishClaim(
   outcome: ClaimOutcome,
 ): void {
   const succeeded = outcome.status === 'review';
-  const now = timestampNow();
-  database
-    .prepare(
-      `UPDATE receipts
-          SET status = ?, ocr_json = COALESCE(?, ocr_json),
-              processed_at = COALESCE(?, processed_at), last_error = ?,
-              updated_at = ?
-        WHERE id = ? AND status = 'processing'`,
-    )
-    .run(
-      outcome.status,
-      succeeded ? outcome.ocrJson : null,
-      succeeded ? now : null,
-      succeeded ? null : outcome.lastError,
-      now,
-      receiptId,
-    );
+  runWriteTransaction(database, () => {
+    const now = timestampNow();
+    const result = database
+      .prepare(
+        `UPDATE receipts
+            SET status = ?, ocr_json = COALESCE(?, ocr_json),
+                processed_at = COALESCE(?, processed_at), last_error = ?,
+                updated_at = ?
+          WHERE id = ? AND status = 'processing'`,
+      )
+      .run(
+        outcome.status,
+        succeeded ? outcome.ocrJson : null,
+        succeeded ? now : null,
+        succeeded ? null : outcome.lastError,
+        now,
+        receiptId,
+      );
+
+    if (!succeeded || result.changes === 0) return;
+    writeReceiptParse(database, receiptId, outcome.parsed, outcome.currency);
+  });
 }
 
 function readReceiptImage(storageDir: string, imagePath: string): Uint8Array {

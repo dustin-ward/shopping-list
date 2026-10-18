@@ -21,6 +21,7 @@ import {
 } from '../receipts/multipart.js';
 import { imageContentType } from '../receipts/ocr-engine';
 import { ocrTextFromJson } from '../receipts/ocr-text';
+import type { ParsedReceipt } from '../receipts/parser';
 import {
   currentListId,
   runWriteTransaction,
@@ -124,6 +125,75 @@ function storeUploadedReceipt(
     }
 
     return { id, status: 'pending', alreadyCaptured: false };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Parsing. The worker writes what the parser read onto the receipt and its
+// lines; `ocr_json` stays as the engine returned it, so any version can be
+// re-derived later.
+// ---------------------------------------------------------------------------
+
+/**
+ * Persist one parser run: the receipt's totals, currency, parse version and
+ * warning list, plus one `receipt_lines` row per parsed line. Lines are
+ * replaced wholesale so a re-parse cannot double them up. Caller supplies the
+ * transaction: this must run in the same one that moves the receipt to
+ * `review`, or a crash between them would leave a reviewable receipt with no
+ * lines.
+ */
+export function writeReceiptParse(
+  database: SqliteDatabase,
+  receiptId: string,
+  parsed: ParsedReceipt,
+  currency: string,
+): void {
+  const now = timestampNow();
+  database
+    .prepare(
+      `UPDATE receipts
+          SET subtotal_minor = ?, tax_minor = ?, total_minor = ?, currency = ?,
+              parse_version = ?, ocr_warnings = ?
+        WHERE id = ?`,
+    )
+    .run(
+      parsed.subtotalMinor,
+      parsed.taxMinor,
+      parsed.totalMinor,
+      currency,
+      parsed.parseVersion,
+      // A JSON array even when empty: `null` means "never parsed".
+      JSON.stringify(parsed.warnings),
+      receiptId,
+    );
+
+  database
+    .prepare('DELETE FROM receipt_lines WHERE receipt_id = ?')
+    .run(receiptId);
+  const insert = database.prepare(
+    `INSERT INTO receipt_lines
+       (id, receipt_id, line_index, raw_text, parsed_name, quantity_real,
+        quantity_text, quantity_unit, unit_price_minor, total_price_minor,
+        is_item_chunk, confidence, review_state, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unreviewed', ?, ?)`,
+  );
+  parsed.lines.forEach((line, lineIndex) => {
+    insert.run(
+      randomUUID(),
+      receiptId,
+      lineIndex,
+      line.rawText,
+      line.parsedName,
+      line.quantityReal,
+      line.quantityText,
+      line.quantityUnit,
+      line.unitPriceMinor,
+      line.totalPriceMinor,
+      line.isItemChunk ? 1 : 0,
+      line.confidence,
+      now,
+      now,
+    );
   });
 }
 
