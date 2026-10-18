@@ -8,7 +8,9 @@
     lineEditPatch,
     type LineEditFields,
   } from '../../client/receipt-review';
+  import type { CatalogItemOption } from '../../client/receipt-binding';
   import { formatMoney, moneyInputValue } from '../../client/money';
+  import ReceiptItemPicker from './ReceiptItemPicker.svelte';
   import {
     REVIEW_STATE_LABELS,
     nextReviewState,
@@ -17,29 +19,50 @@
   import type {
     ReceiptDetailLine,
     ReceiptLinePatch,
+    ReceiptSuggestion,
   } from '../../shared/schemas';
 
   // Every parsed row is rendered, parked ones included: no-loss is a promise the
   // reviewer has to be able to see, not a database detail. Suggestions come from
   // the detail payload (tier 1 = the binding the line sits on, tier 2 = chips
-  // that are shown but never applied).
+  // that are shown but never applied) and are tappable: a chip binds the line
+  // with the accepted rank, and the chip the line already sits on releases it.
   //
   // In `editable` mode an item row is its own small form: the printed text,
-  // quantity, unit and prices are the reviewer's to correct, and the two state
-  // controls are the paths a reviewer can take without choosing an item.
+  // quantity, unit and prices are the reviewer's to correct, the two state
+  // controls are the paths a reviewer can take without choosing an item, and the
+  // item picker searches the household's items or drafts a new one inline.
   // Parked rows stay parser-settled and read-only.
   let {
     lines,
     currency = null,
     editable = false,
     saving = false,
+    catalogItems = [],
+    drafts = {},
     onLineEdit,
+    onSuggestion,
+    onBindItem,
+    onDraftItem,
+    onDraftName,
+    onRelease,
   }: {
     lines: readonly ReceiptDetailLine[];
     currency?: string | null;
     editable?: boolean;
     saving?: boolean;
+    catalogItems?: readonly CatalogItemOption[];
+    /** Inline-created item names, by line id; empty until a reviewer drafts one. */
+    drafts?: Readonly<Record<string, string>>;
     onLineEdit?: (lineId: string, patch: ReceiptLinePatch) => void;
+    onSuggestion?: (
+      line: ReceiptDetailLine,
+      suggestion: ReceiptSuggestion,
+    ) => void;
+    onBindItem?: (lineId: string, catalogItemId: string) => void;
+    onDraftItem?: (lineId: string) => void;
+    onDraftName?: (lineId: string, name: string) => void;
+    onRelease?: (lineId: string) => void;
   } = $props();
 
   const UNITS = ['lb', 'kg', 'oz', 'g', 'l', 'ml', 'ea'] as const;
@@ -220,6 +243,17 @@
               <p class="line-error" role="alert">{errors[line.id]}</p>
             {/if}
           </form>
+
+          <ReceiptItemPicker
+            {line}
+            {catalogItems}
+            draftName={drafts[line.id] ?? ''}
+            disabled={saving}
+            onBind={(catalogItemId) => onBindItem?.(line.id, catalogItemId)}
+            onDraft={() => onDraftItem?.(line.id)}
+            onDraftName={(name) => onDraftName?.(line.id, name)}
+            onRelease={() => onRelease?.(line.id)}
+          />
         {:else}
           <div class="line-text">
             <span class="line-printed">{view.printedText}</span>
@@ -259,12 +293,20 @@
             {#each suggestions as suggestion (suggestion.catalogItemId)}
               {@const tier = suggestionTierBadge(suggestion.tier)}
               {@const bound = suggestionIsBound(line, suggestion)}
-              <li class="suggestion-chip" class:bound title={tier.hint}>
-                <span class="suggestion-name">{suggestion.name}</span>
-                <span class="suggestion-tier">{tier.label}</span>
-                {#if bound}
-                  <span class="suggestion-bound">Bound</span>
-                {/if}
+              <li class="suggestion-chip" class:bound>
+                <button
+                  type="button"
+                  class="suggestion-button"
+                  title={bound ? `Release ${suggestion.name}` : tier.hint}
+                  disabled={!editable || saving}
+                  onclick={() => onSuggestion?.(line, suggestion)}
+                >
+                  <span class="suggestion-name">{suggestion.name}</span>
+                  <span class="suggestion-tier">{tier.label}</span>
+                  {#if bound}
+                    <span class="suggestion-bound">Bound</span>
+                  {/if}
+                </button>
               </li>
             {/each}
           </ul>
@@ -463,17 +505,28 @@
 
   .suggestion-chip {
     display: inline-flex;
+  }
+
+  /* One tappable candidate: accepting it binds the line, accepting the bound
+     one again releases it. */
+  .suggestion-button {
+    display: inline-flex;
     align-items: center;
     gap: 0.35rem;
     padding: 0.15rem 0.5rem;
     border: 1px solid var(--line);
     border-radius: 999px;
     background: var(--surface-inset);
+    color: inherit;
     font-size: 0.75rem;
   }
 
+  .suggestion-button:disabled {
+    opacity: 0.7;
+  }
+
   /* The binding the line already sits on, so an auto-bind is never invisible. */
-  .suggestion-chip.bound {
+  .suggestion-chip.bound .suggestion-button {
     border-color: var(--success);
     color: var(--success);
   }

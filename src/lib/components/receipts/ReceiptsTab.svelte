@@ -8,6 +8,10 @@
     uploadReceipt,
   } from '../../client/receipt-upload';
   import { isReceiptInFlight } from '../../client/receipt-display';
+  import type {
+    CatalogItemOption,
+    GroupOption,
+  } from '../../client/receipt-binding';
   import ReceiptReviewEditor from './ReceiptReviewEditor.svelte';
   import type {
     ReceiptDetail,
@@ -18,7 +22,17 @@
 
   // Capture writes to the server, so the page hands down the existing `canWrite`
   // rule (online, no pending action) rather than re-deriving connectivity here.
-  let { writable = false }: { writable?: boolean } = $props();
+  // The household's items and groups come down the same way: the review editor's
+  // item search and store picker read the list the snapshot already carries.
+  let {
+    writable = false,
+    catalogItems = [],
+    groups = [],
+  }: {
+    writable?: boolean;
+    catalogItems?: readonly CatalogItemOption[];
+    groups?: readonly GroupOption[];
+  } = $props();
 
   const STATUS_LABELS: Record<ReceiptStatus, string> = {
     pending: 'Pending',
@@ -285,7 +299,13 @@
           <p class="message error-message" role="alert">{detail.lastError}</p>
         {/if}
 
-        <ReceiptReviewEditor {detail} {writable} onSaved={handleDetailSaved} />
+        <ReceiptReviewEditor
+          {detail}
+          {writable}
+          {catalogItems}
+          {groups}
+          onSaved={handleDetailSaved}
+        />
       {:else if detailLoading}
         <p class="empty-list">Loading receipt…</p>
       {/if}

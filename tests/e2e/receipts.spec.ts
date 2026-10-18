@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import {
   expect,
@@ -19,6 +20,13 @@ test.use({
   // API-level upload helper below makes by hand.
   extraHTTPHeaders: { 'x-forwarded-proto': 'http' },
 });
+
+/** Headers a JSON mutation from this spec needs: same origin, plain HTTP. */
+const mutationHeaders = {
+  origin: featureOnOrigin,
+  'x-forwarded-proto': 'http',
+  'content-type': 'application/json',
+};
 
 const image = readFileSync(
   resolve(process.cwd(), 'tests/fixtures/receipts/e2e-receipt.png'),
@@ -97,6 +105,88 @@ async function openNewestReceipt(page: Page): Promise<void> {
     'Review needed',
     { timeout: 15_000 },
   );
+}
+
+/** The household's own data, as the review editor's pickers read it. */
+type HouseholdSnapshot = {
+  serverInstanceId: string;
+  catalogItems: { name: string }[];
+  groups: { name: string }[];
+};
+
+async function readHousehold(
+  request: APIRequestContext,
+): Promise<HouseholdSnapshot> {
+  const response = await request.get('/api/snapshot');
+  expect(response.ok()).toBe(true);
+  return (await response.json()) as HouseholdSnapshot;
+}
+
+/**
+ * Seed a catalog item the way the app itself does — by adding a list entry —
+ * then mark it purchased so the shared e2e list is left as the specs expect.
+ * The catalog item stays, and it is what the review editor's search and the
+ * matcher read.
+ */
+async function seedItem(
+  request: APIRequestContext,
+  name: string,
+): Promise<void> {
+  const { serverInstanceId } = await readHousehold(request);
+  const id = randomUUID();
+  const added = await request.post('/api/entries', {
+    headers: mutationHeaders,
+    data: {
+      serverInstanceId,
+      id,
+      name,
+      quantityText: null,
+      note: null,
+      groupIds: [],
+    },
+  });
+  expect(added.ok()).toBe(true);
+
+  const purchased = await request.post(`/api/entries/${id}/purchase`, {
+    headers: mutationHeaders,
+    data: { serverInstanceId, expectedRevision: 1 },
+  });
+  expect(purchased.ok()).toBe(true);
+}
+
+/** Seed a store group, the way the Groups screen does. */
+async function seedStore(
+  request: APIRequestContext,
+  name: string,
+): Promise<void> {
+  const { serverInstanceId } = await readHousehold(request);
+  const response = await request.post('/api/groups', {
+    headers: mutationHeaders,
+    data: { serverInstanceId, name, kind: 'store' },
+  });
+  expect(response.ok()).toBe(true);
+}
+
+type StoredLine = {
+  rawText: string;
+  catalogItemId: string | null;
+  reviewState: string;
+  boundVia: string | null;
+  boundRank: number | null;
+};
+
+/** One stored line of a receipt, read back through the detail API. */
+async function storedLine(
+  request: APIRequestContext,
+  receiptId: string,
+  rawText: string,
+): Promise<StoredLine> {
+  const response = await request.get(`/api/receipts/${receiptId}`);
+  expect(response.ok()).toBe(true);
+  const detail = (await response.json()) as { lines: StoredLine[] };
+  const line = detail.lines.find((candidate) => candidate.rawText === rawText);
+  expect(line, `no stored line for ${rawText}`).toBeDefined();
+  return line!;
 }
 
 /**
@@ -419,4 +509,112 @@ test('the has-unknowns chip lists only receipts with unknown lines', async ({
   };
   expect(all.items.length).toBeGreaterThan(filtered.items.length);
   await expect(cards).toHaveCount(all.items.length);
+});
+
+test('binds a suggestion and drafts an item and a store without creating rows', async ({
+  page,
+  request,
+}) => {
+  // The household already knows "Milk" (a fuzzy match for the fixture's
+  // "MILK 2% 1L" — no alias exists until a commit learns one) and "Corner
+  // Market", the store printed in the fixture's header.
+  await seedItem(request, 'Milk');
+  await seedStore(request, 'Corner Market');
+  const receiptId = await captureUnique(request, 'binding');
+
+  await openReceiptsTab(page);
+  await openNewestReceipt(page);
+
+  // The store picker shows its required state and the best match it read from
+  // the receipt's own text; one tap confirms it.
+  await expect(page.locator('.store-required')).toContainText(
+    'Store required before commit.',
+  );
+  await expect(page.locator('.store-prefill')).toContainText('Corner Market');
+  await page.getByRole('button', { name: 'Use Corner Market' }).click();
+  await expect(page.locator('.store-required')).toHaveCount(0);
+  await expect(page.locator('.store-select')).toHaveValue(/[0-9a-f-]{36}/u);
+
+  // The top candidate is prefilled in the item picker (plan §7) — prefigured,
+  // never bound on its own.
+  const milk = lineRow(page, 'MILK 2% 1L');
+  await expect(milk.getByLabel('Find item')).toHaveValue('Milk');
+  await expect(milk.locator('.line-state')).toHaveText('Unreviewed');
+
+  // Accepting the tier-2 chip binds the line and records the accepted rank.
+  const chip = milk.locator('button.suggestion-button', { hasText: 'Milk' });
+  await expect(chip).toContainText('Tier 2');
+  await chip.click();
+  await expect(milk.locator('.line-state')).toHaveText('Bound');
+  await expect(milk.locator('.binding-item')).toHaveText('Milk');
+  await expect(
+    await storedLine(request, receiptId, 'MILK 2% 1L'),
+  ).toMatchObject({
+    reviewState: 'bound',
+    boundVia: 'suggested',
+    boundRank: 1,
+  });
+
+  // Rejecting the chip the line sits on leaves it unbound — no item, no
+  // provenance, back to a decision still to make.
+  await chip.click();
+  await expect(milk.locator('.line-state')).toHaveText('Unreviewed');
+  await expect(
+    await storedLine(request, receiptId, 'MILK 2% 1L'),
+  ).toMatchObject({
+    reviewState: 'unreviewed',
+    catalogItemId: null,
+    boundVia: null,
+    boundRank: null,
+  });
+
+  // Confirming the prefill from the search is the tier-3 path — the reviewer
+  // found the item there, so the bind is manual and carries no rank.
+  await milk.locator('.item-matches button.match-button').click();
+  await expect(milk.locator('.line-state')).toHaveText('Bound');
+  await expect(milk.locator('.binding-item')).toHaveText('Milk');
+  await expect(
+    await storedLine(request, receiptId, 'MILK 2% 1L'),
+  ).toMatchObject({
+    reviewState: 'bound',
+    boundVia: 'manual',
+    boundRank: null,
+  });
+
+  // An inline-created item is a draft: the line leaves `unreviewed`, and the
+  // reviewer's name lives in the editor. It starts from the parser's name, not
+  // from a search — which is why the reviewer renames it.
+  const bread = lineRow(page, 'SOURDOUGH BREAD');
+  await bread.getByRole('button', { name: 'Create new item' }).click();
+  await expect(bread.locator('.line-state')).toHaveText('New item');
+  await expect(bread.getByLabel('New item name')).toHaveValue(
+    'SOURDOUGH BREAD',
+  );
+  await bread.getByLabel('New item name').fill('Sourdough loaf');
+  await expect(bread.getByLabel('New item name')).toHaveValue('Sourdough loaf');
+
+  // The same for a new store: it stands in as the chosen store, and the picker
+  // stops asking for one. Drafting a store takes the place of the group that
+  // was chosen a moment ago — one of the two can stand, never both.
+  await page.getByRole('button', { name: 'Create new store' }).click();
+  await page.getByLabel('New store name').fill('Trader Joe’s');
+  await page.getByRole('button', { name: 'Use new store' }).click();
+  await expect(page.locator('.store-required')).toHaveCount(0);
+  await expect(page.locator('.store-select')).toHaveValue('__draft_store__');
+  await expect(page.locator('.store-select')).toContainText(
+    'New store: Trader Joe’s (draft)',
+  );
+  const afterDraft = (await (
+    await request.get(`/api/receipts/${receiptId}`)
+  ).json()) as { storeGroupId: string | null };
+  expect(afterDraft.storeGroupId).toBeNull();
+
+  // Neither draft is an entity yet: commit (ticket 13) is what creates rows.
+  const household = await readHousehold(request);
+  expect(household.catalogItems.map((item) => item.name)).not.toContain(
+    'Sourdough loaf',
+  );
+  expect(household.groups.map((group) => group.name)).not.toContain(
+    'Trader Joe’s',
+  );
 });

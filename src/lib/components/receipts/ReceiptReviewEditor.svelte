@@ -1,55 +1,154 @@
 <script lang="ts">
   import { ApiError } from '../../client/api';
   import {
+    bindItemEdit,
+    draftItemEdit,
+    releaseEdit,
+    storePrefill,
+    suggestionEdit,
+    type CatalogItemOption,
+    type GroupOption,
+  } from '../../client/receipt-binding';
+  import {
     fetchReceiptDetail,
     saveReceiptReview,
   } from '../../client/receipt-review';
   import { isReceiptInFlight } from '../../client/receipt-display';
   import ReceiptLines from './ReceiptLines.svelte';
+  import ReceiptStorePicker from './ReceiptStorePicker.svelte';
   import ReceiptTotalsStrip from './ReceiptTotalsStrip.svelte';
-  import type { ReceiptDetail, ReceiptLinePatch } from '../../shared/schemas';
+  import type {
+    ReceiptDetail,
+    ReceiptDetailLine,
+    ReceiptLinePatch,
+    ReceiptSuggestion,
+    UpdateReceiptInput,
+  } from '../../shared/schemas';
 
   // The review surface's interactive base: the receipt's image, its lines with
-  // their review states and edits, and the totals the edits move. Only a
-  // receipt in `review` is editable — a committed receipt renders read-only —
-  // and every edit carries the `updatedAt` the editor last saw, so a receipt
-  // another device moved on answers with a conflict instead of a silent
-  // overwrite.
+  // their review states, bindings and edits, the store it belongs to, and the
+  // totals the edits move. Only a receipt in `review` is editable — a committed
+  // receipt renders read-only — and every edit carries the `updatedAt` the
+  // editor last saw, so a receipt another device moved on answers with a
+  // conflict instead of a silent overwrite.
+  //
+  // The household's items and store groups arrive from the page's snapshot: the
+  // item search and the store picker are reads of the same list the reviewer
+  // sees. An inline-created item or store is only a draft held here until
+  // commit (ticket 13) materializes it, which is why this component never asks
+  // the server for one.
   let {
     detail,
     writable = false,
+    catalogItems = [],
+    groups = [],
     onSaved,
   }: {
     detail: ReceiptDetail;
     writable?: boolean;
+    catalogItems?: readonly CatalogItemOption[];
+    groups?: readonly GroupOption[];
     onSaved: (detail: ReceiptDetail) => void;
   } = $props();
 
   const editable = $derived(detail.status === 'review' && writable);
+  const stores = $derived(groups.filter((group) => group.kind === 'store'));
 
   let imageFailed = $state(false);
   let saving = $state(false);
   let saveError = $state('');
   /**
-   * Saves run one at a time and in order. Blurring a field and pressing a state
-   * control can both fire in the same moment, and the second edit must carry the
-   * `updatedAt` the first one left behind, not the stale one it saw.
+   * Saves run one at a time and in order. Blurring a field, pressing a state
+   * control and accepting a chip can all fire in the same moment, and the second
+   * edit must carry the `updatedAt` the first one left behind, not the stale one
+   * it saw.
    */
   let queue: Promise<void> = Promise.resolve();
 
-  function handleLineEdit(lineId: string, patch: ReceiptLinePatch): void {
-    queue = queue.then(() => saveLine(lineId, patch));
+  /**
+   * Drafts created inline: the reviewer's names for an item and a store that do
+   * not exist yet. They live here, and only here, until commit materializes
+   * them — no catalog item and no store group is written early.
+   */
+  let itemDrafts = $state<Record<string, string>>({});
+  let storeDraft = $state('');
+  /** The store the receipt's own text names, while the reviewer has chosen none. */
+  const storeSuggestion = $derived(
+    !detail.storeGroupId && !storeDraft
+      ? storePrefill(detail.lines, stores)
+      : null,
+  );
+
+  /**
+   * Send one line's edit. Any state but `new` ends the line's item draft, so a
+   * released or re-bound line cannot still be holding a name for nothing.
+   */
+  function submitLine(lineId: string, patch: ReceiptLinePatch): void {
+    if (patch.reviewState && patch.reviewState !== 'new') {
+      forgetItemDraft(lineId);
+    }
+    queue = queue.then(() => save({ lines: [{ id: lineId, ...patch }] }));
   }
 
-  async function saveLine(
-    lineId: string,
-    patch: ReceiptLinePatch,
-  ): Promise<void> {
+  function acceptSuggestion(
+    line: ReceiptDetailLine,
+    suggestion: ReceiptSuggestion,
+  ): void {
+    const patch = suggestionEdit(line, suggestion);
+    if (patch) submitLine(line.id, patch);
+  }
+
+  function bindItem(lineId: string, catalogItemId: string): void {
+    submitLine(lineId, bindItemEdit(catalogItemId));
+  }
+
+  function releaseLine(lineId: string): void {
+    submitLine(lineId, releaseEdit());
+  }
+
+  /** Start (or keep editing) a draft item for the line. */
+  function draftItem(lineId: string): void {
+    const line = detail.lines.find((candidate) => candidate.id === lineId);
+    if (!line) return;
+    const { patch, name } = draftItemEdit(line);
+    itemDrafts = { ...itemDrafts, [lineId]: name };
+    if (line.reviewState !== 'new') submitLine(lineId, patch);
+  }
+
+  function renameDraftItem(lineId: string, name: string): void {
+    itemDrafts = { ...itemDrafts, [lineId]: name };
+  }
+
+  function forgetItemDraft(lineId: string): void {
+    if (!(lineId in itemDrafts)) return;
+    const { [lineId]: _dropped, ...rest } = itemDrafts;
+    itemDrafts = rest;
+  }
+
+  /** Pick an existing store: an ordinary edit, persisted like any other. */
+  function chooseStore(storeGroupId: string | null): void {
+    storeDraft = '';
+    queue = queue.then(() => save({ storeGroupId }));
+  }
+
+  /**
+   * Draft a brand-new store. Only one of the two can stand — a receipt is bound
+   * to a group or it is waiting on a draft — so drafting unset whatever group was
+   * chosen, and commit (ticket 13) is what materializes the draft instead.
+   */
+  function draftStore(name: string): void {
+    storeDraft = name;
+    if (detail.storeGroupId) {
+      queue = queue.then(() => save({ storeGroupId: null }));
+    }
+  }
+
+  async function save(patch: Omit<UpdateReceiptInput, 'expectedUpdatedAt'>) {
     saving = true;
     try {
       const updated = await saveReceiptReview(detail.id, {
         expectedUpdatedAt: detail.updatedAt,
-        lines: [{ id: lineId, ...patch }],
+        ...patch,
       });
       saveError = '';
       onSaved(updated);
@@ -104,13 +203,31 @@
     currency={detail.currency}
     {editable}
     {saving}
-    onLineEdit={handleLineEdit}
+    {catalogItems}
+    drafts={itemDrafts}
+    onLineEdit={submitLine}
+    onSuggestion={acceptSuggestion}
+    onBindItem={bindItem}
+    onDraftItem={draftItem}
+    onDraftName={renameDraftItem}
+    onRelease={releaseLine}
   />
   {#if detail.status === 'review' && !writable}
     <p class="muted">
       Reviewing needs a connection — reconnect to edit this receipt.
     </p>
   {/if}
+  <h3 class="detail-subheading">Store</h3>
+  <ReceiptStorePicker
+    {stores}
+    storeGroupId={detail.storeGroupId}
+    draftName={storeDraft}
+    prefill={storeSuggestion}
+    {editable}
+    onChoose={chooseStore}
+    onDraft={draftStore}
+    onClearDraft={() => (storeDraft = '')}
+  />
   <ReceiptTotalsStrip
     lines={detail.lines}
     subtotalMinor={detail.subtotalMinor}

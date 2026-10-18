@@ -232,6 +232,28 @@ describe('ReceiptLines suggestion chips', () => {
     expect(row).toContain('suggestion-tier">Tier 1<');
     expect(row).toContain('suggestion-bound">Bound<');
   });
+
+  it('makes every chip tappable, so accepting one binds and releasing one decides', () => {
+    const body = readable(
+      render(ReceiptLines, {
+        props: { lines: linesWithChips(), currency: 'USD' },
+      }).body,
+    );
+    const row = rowFor(body, 'MILK 2% 1L');
+
+    expect(row.match(/<button[^>]*class="suggestion-button/gu)).toHaveLength(2);
+  });
+
+  it('leaves the chips inert on a receipt that is not editable', () => {
+    const lines = linesWithChips();
+    const body = readable(
+      render(ReceiptLines, {
+        props: { lines, currency: 'USD', editable: false },
+      }).body,
+    );
+
+    expect(rowFor(body, 'MILK 2% 1L')).toContain('disabled');
+  });
 });
 
 describe('ReceiptLines review editor', () => {
@@ -311,6 +333,52 @@ describe('ReceiptLines review editor', () => {
     expect(parked).not.toContain('line-editor');
     expect(parked).toContain('line-parked">Parked');
     expect(parked).toMatch(/line-total-price[^>]*>.*17\.55/u);
+  });
+
+  it('gives every item row the item picker, and no parked row one', () => {
+    const body = readable(
+      render(ReceiptLines, {
+        props: {
+          lines: linesOf('stub-ocr'),
+          currency: 'USD',
+          editable: true,
+          catalogItems: [
+            { id: '00000000-0000-4000-8000-0000000000aa', name: 'Milk' },
+          ],
+        },
+      }).body,
+    );
+    const itemLines = linesOf('stub-ocr').filter((line) => line.isItemChunk);
+
+    expect(body.match(/aria-label="Find item"/gu)).toHaveLength(
+      itemLines.length,
+    );
+    expect(body.match(/>Create new item</gu)).toHaveLength(itemLines.length);
+    expect(rowFor(body, 'SUBTOTAL')).not.toContain('aria-label="Find item"');
+  });
+
+  it('names the item a bound line sits on and offers to release it', () => {
+    const itemId = '00000000-0000-4000-8000-0000000000aa';
+    const lines = linesOf('stub-ocr').map((line) =>
+      line.rawText === 'MILK 2% 1L'
+        ? { ...line, reviewState: 'bound' as const, catalogItemId: itemId }
+        : line,
+    );
+    const body = readable(
+      render(ReceiptLines, {
+        props: {
+          lines,
+          currency: 'USD',
+          editable: true,
+          catalogItems: [{ id: itemId, name: 'Milk' }],
+        },
+      }).body,
+    );
+
+    const row = editableRowFor(body, 'MILK 2% 1L');
+    expect(row).toContain('binding-item">Milk<');
+    expect(row).toContain('>Release</button>');
+    expect(row).not.toContain('aria-label="Find item"');
   });
 
   it('renders no form at all when the receipt is not editable', () => {

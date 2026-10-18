@@ -1708,7 +1708,11 @@
       {/if}
     </section>
   {:else if screen === 'receipts'}
-    <ReceiptsTab writable={canWrite} />
+    <ReceiptsTab
+      writable={canWrite}
+      catalogItems={snapshot.catalogItems}
+      groups={snapshot.groups}
+    />
   {:else}
     <section class="secondary-screen" aria-labelledby="history-heading">
       <div class="list-heading">
