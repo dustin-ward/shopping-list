@@ -19,6 +19,7 @@
  * text stays as printed.
  */
 
+import { receiptTotals } from '../../shared/receipt-totals';
 import {
   collapse,
   detectPriceColumns,
@@ -38,9 +39,6 @@ import { readQuantity, type CanonicalQuantityUnit } from './quantity';
  * keeps its raw `ocr_json` so any version can be re-derived later.
  */
 export const RECEIPT_PARSE_VERSION = 1;
-
-/** The delta is a hint, never a gate: quiet below max($0.05, 1% of total). */
-export const DELTA_WARNING_MIN_MINOR = 5;
 
 /** How many unreadable amounts and low-confidence notes a warning list names. */
 const MAX_NAMED_WARNINGS = 5;
@@ -250,14 +248,18 @@ export function parseReceiptOcr(raw: string): ParsedReceipt {
     );
   }
 
-  const deltaMinor = totalsDelta(parsed, subtotalMinor, totalMinor);
-  if (
-    deltaMinor !== null &&
-    deltaExceedsThreshold(deltaMinor, totalMinor ?? subtotalMinor ?? 0)
-  ) {
+  // One arithmetic for both the recorded warning and the review strip.
+  const totals = receiptTotals({
+    lines: parsed,
+    subtotalMinor,
+    taxMinor,
+    totalMinor,
+  });
+  const { deltaMinor } = totals;
+  if (deltaMinor !== null && totals.itemsMinor !== null && totals.deltaWarns) {
     warnings.push(
-      `the item lines total ${formatMinor(itemTotal(parsed))} but ${
-        subtotalMinor !== null ? 'SUBTOTAL' : 'TOTAL'
+      `the item lines total ${formatMinor(totals.itemsMinor)} but ${
+        totals.deltaReference === 'subtotal' ? 'SUBTOTAL' : 'TOTAL'
       } reads ${formatMinor((subtotalMinor ?? totalMinor) as number)} (delta ${formatMinor(
         Math.abs(deltaMinor),
       )})`,
@@ -509,40 +511,4 @@ function meanConfidence(lines: OcrLine[]): number {
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
-}
-
-function itemTotal(parsed: ParsedReceiptLine[]): number {
-  return parsed.reduce(
-    (sum, row) => sum + (row.isItemChunk ? (row.totalPriceMinor ?? 0) : 0),
-    0,
-  );
-}
-
-/**
- * `Σ(item totals) − subtotal`, or against the total when the receipt has no
- * subtotal line. `null` when there is nothing to compare. It is the gap the
- * reviewer sees, not an error: coupons and deposits are parked rows, so a
- * receipt that carries them reports the adjustment as the delta.
- */
-function totalsDelta(
-  parsed: ParsedReceiptLine[],
-  subtotalMinor: number | null,
-  totalMinor: number | null,
-): number | null {
-  const reference = subtotalMinor ?? totalMinor;
-  if (reference === null) return null;
-  if (!parsed.some((row) => row.isItemChunk)) return null;
-  return itemTotal(parsed) - reference;
-}
-
-/** Whether a delta is worth a review warning: max($0.05, 1% of the receipt total). */
-export function deltaExceedsThreshold(
-  deltaMinor: number,
-  referenceMinor: number,
-): boolean {
-  const threshold = Math.max(
-    DELTA_WARNING_MIN_MINOR,
-    Math.round(referenceMinor * 0.01),
-  );
-  return Math.abs(deltaMinor) > threshold;
 }

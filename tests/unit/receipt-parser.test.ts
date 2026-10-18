@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  deltaExceedsThreshold,
-  parseReceiptOcr,
-} from '../../src/lib/server/receipts/parser';
+import { deltaExceedsThreshold } from '../../src/lib/shared/receipt-totals';
+import { parseReceiptOcr } from '../../src/lib/server/receipts/parser';
 
 type Line = { text: string; y: number; x?: number; conf?: number };
 

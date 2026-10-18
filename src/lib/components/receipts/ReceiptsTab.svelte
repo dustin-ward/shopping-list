@@ -1,11 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { ApiError, requestJson } from '../../client/api';
+  import { formatMoney } from '../../client/money';
   import { prepareReceiptImage } from '../../client/receipt-image';
   import {
     receiptUploadErrorMessage,
     uploadReceipt,
   } from '../../client/receipt-upload';
+  import ReceiptLines from './ReceiptLines.svelte';
+  import ReceiptTotalsStrip from './ReceiptTotalsStrip.svelte';
   import type {
     ReceiptDetail,
     ReceiptListItem,
@@ -239,13 +242,6 @@
       timeStyle: 'short',
     });
   }
-
-  function formatMoney(minor: number, currency: string | null): string {
-    return new Intl.NumberFormat([], {
-      style: 'currency',
-      currency: currency ?? 'USD',
-    }).format(minor / 100);
-  }
 </script>
 
 <section
@@ -304,13 +300,25 @@
           {/if}
         </figure>
 
-        <h3 class="detail-subheading">Raw OCR text</h3>
-        {#if detail.ocrText}
-          <pre class="ocr-text">{detail.ocrText}</pre>
+        <h3 class="detail-subheading">Parsed lines</h3>
+        {#if detail.lines.length}
+          <ReceiptLines lines={detail.lines} currency={detail.currency} />
+          <ReceiptTotalsStrip
+            lines={detail.lines}
+            subtotalMinor={detail.subtotalMinor}
+            taxMinor={detail.taxMinor}
+            totalMinor={detail.totalMinor}
+            currency={detail.currency}
+          />
         {:else if isInFlight(detail.status)}
-          <p class="muted">Waiting for OCR… this updates automatically.</p>
+          <p class="muted">Reading the receipt… this updates automatically.</p>
         {:else}
-          <p class="muted">No OCR text was recorded.</p>
+          <p class="muted">No lines were read from this receipt.</p>
+        {/if}
+
+        {#if detail.ocrText}
+          <h3 class="detail-subheading">Raw OCR text</h3>
+          <pre class="ocr-text">{detail.ocrText}</pre>
         {/if}
       {:else if detailLoading}
         <p class="empty-list">Loading receipt…</p>

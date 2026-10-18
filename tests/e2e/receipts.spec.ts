@@ -106,6 +106,48 @@ test('captures a receipt, lists it, and flips pending to review in the open view
   ).toBe(true);
 });
 
+test('renders the parsed lines, the parked rows and the totals strip', async ({
+  page,
+  request,
+}) => {
+  // Every stub-mode capture parses the same committed fixture: 4 item rows
+  // (MILK, SOURDOUGH BREAD, GALA APPLES, CHEDDAR CHEESE) and 9 parked rows.
+  await capture(request);
+
+  await openReceiptsTab(page);
+  await page.locator('.receipt-list .receipt-open').first().click();
+  await expect(page.locator('.receipt-detail .status-chip')).toHaveText(
+    'Review needed',
+    { timeout: 15_000 },
+  );
+
+  const rows = page.locator('.receipt-lines .receipt-line');
+  await expect(rows).toHaveCount(13);
+  // Parked rows stay on screen instead of being dropped.
+  await expect(page.locator('.receipt-lines .receipt-line.parked')).toHaveCount(
+    9,
+  );
+  const parked = page.locator('.receipt-line.parked', { hasText: 'SUBTOTAL' });
+  await expect(parked.locator('.line-parked')).toHaveText('Parked');
+  await expect(parked.locator('.line-total-price')).toContainText('17.55');
+
+  const milk = page.locator('.receipt-line', { hasText: 'MILK 2% 1L' });
+  await expect(milk.locator('.line-printed')).toHaveText('MILK 2% 1L');
+  await expect(milk.locator('.line-parsed-name')).toHaveText('MILK 2% 1L');
+  await expect(milk.locator('.line-total-price')).toContainText('3.49');
+
+  const strip = page.locator('.totals-strip');
+  await expect(strip.locator('.totals-items')).toContainText('17.55');
+  await expect(strip.locator('.totals-subtotal')).toContainText('17.55');
+  await expect(strip.locator('.totals-tax')).toContainText('1.05');
+  await expect(strip.locator('.totals-total')).toContainText('18.60');
+  // These items add up to the subtotal, so the strip stays quiet.
+  await expect(page.locator('.totals-warning')).toHaveCount(0);
+
+  // The raw OCR text is still kept, below the parsed lines.
+  await expect(page.locator('.ocr-text')).toContainText('CORNER MARKET');
+});
+
 test('serves the receipt image same-origin without caching', async ({
   request,
 }) => {
