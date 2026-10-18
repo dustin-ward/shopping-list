@@ -725,6 +725,134 @@ test('commits a reviewed receipt: the drafts become rows and the view goes read-
   ).toHaveText('Committed');
 });
 
+test('manages learned aliases: a delete stops auto-binding, the next review relearns it', async ({
+  page,
+  request,
+}) => {
+  // A name unique to this run: aliases are per list and the e2e server is
+  // reused between local runs, so leftovers must not be able to satisfy an
+  // assertion about *this* item.
+  const suffix = randomUUID().slice(0, 8);
+  const itemName = `Milk ${suffix}`;
+  const storeName = `Harbor Market ${suffix}`;
+  await seedItem(request, itemName);
+  await seedStore(request, storeName);
+
+  /** Decide every item line of the stub fixture and choose the store. */
+  async function decideFixture(receiptPage: Page): Promise<void> {
+    const milk = lineRow(receiptPage, 'MILK 2% 1L');
+    await milk.getByLabel('Find item').fill(itemName);
+    await milk
+      .locator('.item-matches button.match-button', { hasText: itemName })
+      .click();
+    await expect(milk.locator('.line-state')).toHaveText('Bound');
+    for (const parsedName of [
+      'SOURDOUGH BREAD',
+      'GALA APPLES',
+      'CHEDDAR CHEESE',
+    ]) {
+      const row = lineRow(receiptPage, parsedName);
+      await row.getByRole('button', { name: /can't identify/i }).click();
+      await expect(row.locator('.line-state')).toHaveText('Unknown');
+    }
+    await receiptPage
+      .locator('.store-select')
+      .selectOption({ label: storeName });
+  }
+
+  async function commit(page: Page): Promise<void> {
+    await page.getByRole('button', { name: 'Commit receipt' }).click();
+    await expect(page.locator('.receipt-detail .status-chip')).toHaveText(
+      'Committed',
+      { timeout: 15_000 },
+    );
+  }
+
+  // 1. Commit one review of the fixture: the printed text the milk line was
+  //    bound to is learned as an alias for the item.
+  await captureUnique(request, `alias-learn-${suffix}`);
+  await openReceiptsTab(page);
+  await openNewestReceipt(page);
+  await decideFixture(page);
+  await commit(page);
+
+  // 2. The alias is visible under its item in the alias view.
+  await page.getByRole('button', { name: 'Back to receipts' }).click();
+  await page.getByRole('button', { name: 'Aliases', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Aliases' })).toBeVisible();
+  const milkItem = page.locator('.alias-item', { hasText: itemName });
+  await expect(milkItem.locator('.alias-text')).toHaveText('MILK 2% 1L');
+  await expect(milkItem.locator('.alias-source')).toHaveText(
+    'Learned in review',
+  );
+
+  // 3. Deleting asks twice; the row then leaves the live list and stays
+  //    queryable behind the audit toggle.
+  await milkItem
+    .getByRole('button', { name: 'Delete alias MILK 2% 1L' })
+    .click();
+  await expect(milkItem.locator('.alias-confirm')).toContainText(
+    'kept for audit',
+  );
+  await milkItem.getByRole('button', { name: 'Cancel' }).click();
+  await expect(milkItem.locator('.alias-confirm')).toHaveCount(0);
+
+  await milkItem
+    .getByRole('button', { name: 'Delete alias MILK 2% 1L' })
+    .click();
+  await milkItem.getByRole('button', { name: 'Delete alias' }).click();
+  await expect(page.locator('.alias-notice')).toContainText(
+    'will no longer auto-bind',
+  );
+  await expect(milkItem.locator('.alias-text')).toHaveCount(0);
+
+  await page.getByRole('button', { name: /Show deleted aliases/ }).click();
+  await expect(milkItem.locator('.alias-text')).toHaveText('MILK 2% 1L');
+  await expect(milkItem.locator('.alias-row')).toHaveClass(/deleted/);
+  await expect(milkItem.locator('.alias-deleted')).toHaveText('Kept for audit');
+
+  // 4. The next receipt no longer auto-binds that wording: the line is left for
+  //    the reviewer, which is exactly what the delete bought. The capture went
+  //    straight to the API, so the tab is reopened to read the list that holds
+  //    it — the same full load `openReceiptsTab` gives every test.
+  const second = await captureUnique(request, `alias-relearn-${suffix}`);
+  await openReceiptsTab(page);
+  await openNewestReceipt(page);
+  await expect(lineRow(page, 'MILK 2% 1L').locator('.line-state')).toHaveText(
+    'Unreviewed',
+  );
+  expect(await storedLine(request, second, 'MILK 2% 1L')).toMatchObject({
+    catalogItemId: null,
+    reviewState: 'unreviewed',
+    boundVia: null,
+  });
+
+  // 5. Reviewing it again and committing relearns the same row…
+  await decideFixture(page);
+  await commit(page);
+
+  await page.getByRole('button', { name: 'Back to receipts' }).click();
+  await page.getByRole('button', { name: 'Aliases', exact: true }).click();
+  await expect(
+    page.locator('.alias-item', { hasText: itemName }).locator('.alias-text'),
+  ).toHaveText('MILK 2% 1L');
+  await expect(
+    page.locator('.alias-item', { hasText: itemName }).locator('.alias-row'),
+  ).not.toHaveClass(/deleted/);
+
+  // 6. …and the receipt after that binds by itself, with no tap at all.
+  const third = await captureUnique(request, `alias-auto-${suffix}`);
+  await openReceiptsTab(page);
+  await openNewestReceipt(page);
+  const bound = lineRow(page, 'MILK 2% 1L');
+  await expect(bound.locator('.line-state')).toHaveText('Bound');
+  await expect(bound.locator('.binding-item')).toHaveText(itemName);
+  expect(await storedLine(request, third, 'MILK 2% 1L')).toMatchObject({
+    reviewState: 'bound',
+    boundVia: 'auto',
+  });
+});
+
 test('discards a receipt: the photo goes, the text stays, the bytes capture again', async ({
   page,
   request,

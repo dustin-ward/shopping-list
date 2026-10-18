@@ -23,7 +23,7 @@
  */
 
 import { normalizeName } from '../../shared/normalize';
-import type { ReceiptSuggestion } from '../../shared/schemas';
+import type { AmbiguousPhrase, ReceiptSuggestion } from '../../shared/schemas';
 
 /** Most suggestions a line is ever offered; the ranking is truncated to this. */
 export const MAX_SUGGESTIONS = 5;
@@ -93,6 +93,8 @@ export type MatcherItem = {
 /** A live alias a human confirmed (`source` manual or review); OCR-only aliases never match. */
 export type MatcherAlias = {
   catalogItemId: string;
+  /** The printed variant, for display only; matching reads the normalized form. */
+  aliasText: string;
   normalizedAlias: string;
 };
 
@@ -147,6 +149,67 @@ export function matchReceiptLine(
 /** Where a phrase comes from: the parser's name read, else the printed text. */
 export function phraseForLine(line: MatchableLine): string {
   return line.parsedName?.trim() || line.rawText;
+}
+
+/**
+ * Every phrase the list cannot resolve: two or more items claim it — one by its
+ * household name, the other by a human-confirmed alias — so tier 1 refuses to
+ * bind and the reviewer is asked instead of guessed at (`ADR 0003`).
+ *
+ * This is the same decision `matchReceiptLine` makes, surfaced for the reviewer:
+ * the claims are the evidence matching itself reads and the candidates come from
+ * the same tier-1 rule, so the list cannot drift from what a line actually does.
+ * Ordered by normalized phrase, claimants in the matcher's own candidate order.
+ */
+export function ambiguousPhrases(context: MatchContext): AmbiguousPhrase[] {
+  const display = new Map<string, string>();
+  for (const claim of claimPhrases(context)) {
+    if (!display.has(claim.normalized)) {
+      display.set(claim.normalized, claim.text);
+    }
+  }
+
+  const ambiguous: AmbiguousPhrase[] = [];
+  for (const [normalizedPhrase, phrase] of display) {
+    const claiming = tierOneCandidates(normalizedPhrase, context);
+    if (claiming.length < 2) continue;
+    ambiguous.push({
+      phrase,
+      normalizedPhrase,
+      items: claiming.map(({ catalogItemId, name }) => ({
+        catalogItemId,
+        name,
+      })),
+    });
+  }
+
+  return ambiguous.sort((left, right) =>
+    left.normalizedPhrase.localeCompare(right.normalizedPhrase),
+  );
+}
+
+/**
+ * The phrases the list knows, in claim order: every item's household name first,
+ * then every confirmed alias's printed text. An item name really is a claim —
+ * tier 1 binds on it — which is how an item name and another item's alias can
+ * end up in conflict.
+ */
+function claimPhrases({
+  items,
+  aliases,
+}: MatchContext): { text: string; normalized: string }[] {
+  const claims = items.map((item) => ({
+    text: item.name,
+    normalized: item.normalizedName,
+  }));
+  for (const alias of aliases) {
+    if (!alias.normalizedAlias) continue;
+    claims.push({
+      text: alias.aliasText.trim() || alias.normalizedAlias,
+      normalized: alias.normalizedAlias,
+    });
+  }
+  return claims;
 }
 
 /**

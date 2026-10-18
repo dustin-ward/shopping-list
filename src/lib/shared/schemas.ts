@@ -310,6 +310,48 @@ export const receiptCapabilitiesSchema = z.object({
 });
 
 /**
+ * One learned alias: the printed wording a catalog item answers to. A row is
+ * per list and soft-deleted (`deletedAt`) — a deleted alias stops auto-binding
+ * while the row stays queryable as the audit trail of what was once confirmed
+ * (plan §7, `ADR 0003`).
+ */
+export const aliasSourceSchema = z.enum(['manual', 'review', 'auto']);
+
+export const itemAliasSchema = z.object({
+  id: uuidSchema,
+  /** The printed variant, e.g. `DAIRYLAND 2% 1L`. */
+  aliasText: z.string(),
+  normalizedAlias: z.string(),
+  source: aliasSourceSchema,
+  createdAt: z.string(),
+  deletedAt: z.string().nullable(),
+});
+
+/** One item's aliases — live and deleted — as the alias surface lists them. */
+export const itemAliasesSchema = z.object({
+  catalogItemId: uuidSchema,
+  name: z.string(),
+  aliases: z.array(itemAliasSchema),
+});
+
+/**
+ * A phrase two or more items claim, so tier 1 refuses to bind it and the
+ * reviewer is asked instead of guessed at (`ADR 0003`). `phrase` is the printed
+ * wording to show; `normalizedPhrase` is what the claims share.
+ */
+export const ambiguousPhraseSchema = z.object({
+  phrase: z.string(),
+  normalizedPhrase: z.string(),
+  items: z.array(z.object({ catalogItemId: uuidSchema, name: z.string() })),
+});
+
+/** `GET /api/aliases`: every learned alias, grouped per item, plus ambiguities. */
+export const aliasOverviewSchema = z.object({
+  items: z.array(itemAliasesSchema),
+  ambiguous: z.array(ambiguousPhraseSchema),
+});
+
+/**
  * One line's review edits. Every field is optional: the editor sends what the
  * reviewer touched and nothing else, so two edits of the same line never fight
  * over fields neither of them changed.
@@ -422,6 +464,11 @@ export type ReceiptSuggestion = z.infer<typeof receiptSuggestionSchema>;
 export type ReceiptDetailLine = z.infer<typeof receiptDetailLineSchema>;
 export type ReceiptDetail = z.infer<typeof receiptDetailSchema>;
 export type ReceiptCapabilities = z.infer<typeof receiptCapabilitiesSchema>;
+export type AliasSource = z.infer<typeof aliasSourceSchema>;
+export type ItemAlias = z.infer<typeof itemAliasSchema>;
+export type ItemAliases = z.infer<typeof itemAliasesSchema>;
+export type AmbiguousPhrase = z.infer<typeof ambiguousPhraseSchema>;
+export type AliasOverview = z.infer<typeof aliasOverviewSchema>;
 export type ReceiptLineEdit = z.infer<typeof receiptLineEditSchema>;
 export type UpdateReceiptInput = z.infer<typeof updateReceiptSchema>;
 export type CommitReceiptInput = z.infer<typeof commitReceiptSchema>;

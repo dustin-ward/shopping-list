@@ -244,6 +244,58 @@ describe('ReceiptLines suggestion chips', () => {
     expect(row.match(/<button[^>]*class="suggestion-button/gu)).toHaveLength(2);
   });
 
+  it('explains a line two items claim, so a refused bind is never a mystery', () => {
+    // Two tier-1 candidates: matching asked instead of choosing between them.
+    const lines = linesOf('clean-grocery').map((line) =>
+      line.rawText === 'MILK 2% 1L'
+        ? {
+            ...line,
+            suggestions: [
+              { ...milkSuggestion, tier: 1 as const, score: 1 },
+              { ...milkSizeSuggestion, tier: 1 as const, score: 1 },
+            ],
+          }
+        : line,
+    );
+
+    const body = readable(
+      render(ReceiptLines, { props: { lines, currency: 'USD' } }).body,
+    );
+    const row = rowFor(body, 'MILK 2% 1L');
+
+    expect(row).toContain(
+      '2 items claim this phrase — matching asks instead of guessing.',
+    );
+    // Fuzzy lines carry no such note: their refusal to bind is the tier badge.
+    expect(body.match(/class="line-ambiguity"/gu)).toHaveLength(1);
+  });
+
+  it('drops the note once the line is decided — a committed row no longer asks', () => {
+    // Same two claims, but the reviewer bound the line: the question is answered,
+    // and on a committed receipt every item line has left `unreviewed`.
+    const lines = linesOf('clean-grocery').map((line) =>
+      line.rawText === 'MILK 2% 1L'
+        ? {
+            ...line,
+            reviewState: 'bound' as const,
+            catalogItemId: milkSuggestion.catalogItemId,
+            boundVia: 'suggested' as const,
+            suggestions: [
+              { ...milkSuggestion, tier: 1 as const, score: 1 },
+              { ...milkSizeSuggestion, tier: 1 as const, score: 1 },
+            ],
+          }
+        : line,
+    );
+
+    const body = readable(
+      render(ReceiptLines, { props: { lines, currency: 'USD' } }).body,
+    );
+
+    expect(body).not.toContain('claim this phrase');
+    expect(body.match(/class="line-ambiguity"/gu)).toBeNull();
+  });
+
   it('leaves the chips inert on a receipt that is not editable', () => {
     const lines = linesWithChips();
     const body = readable(

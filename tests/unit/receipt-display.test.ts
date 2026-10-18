@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  ambiguousLineHint,
   receiptLineView,
   totalsWarningText,
   type ReceiptLineFields,
@@ -217,5 +218,51 @@ describe('totalsWarningText', () => {
     expect(totalsWarningText(totals, money)).toBe(
       'The item lines total $10.00 but the total reads $9.00 — a difference of $1.00.',
     );
+  });
+});
+
+describe('ambiguousLineHint', () => {
+  const suggestion = (tier: 1 | 2) => ({
+    catalogItemId: `00000000-0000-4000-8000-00000000000${tier}`,
+    name: tier === 1 ? 'Cereal' : 'Granola',
+    tier,
+    score: 1,
+    sameStore: false,
+  });
+
+  it('explains a line two items claim, so the reviewer knows why matching asked', () => {
+    expect(
+      ambiguousLineHint({
+        reviewState: 'unreviewed',
+        suggestions: [suggestion(1), suggestion(1)],
+      }),
+    ).toBe('2 items claim this phrase — matching asks instead of guessing.');
+  });
+
+  it('stays silent on a single candidate and on fuzzy ones', () => {
+    expect(
+      ambiguousLineHint({
+        reviewState: 'unreviewed',
+        suggestions: [suggestion(1)],
+      }),
+    ).toBeNull();
+    expect(
+      ambiguousLineHint({
+        reviewState: 'unreviewed',
+        suggestions: [suggestion(2), suggestion(2)],
+      }),
+    ).toBeNull();
+    expect(
+      ambiguousLineHint({ reviewState: 'unreviewed', suggestions: [] }),
+    ).toBeNull();
+  });
+
+  it('stops explaining once the reviewer has decided the line', () => {
+    const claimed = [suggestion(1), suggestion(1)];
+    for (const reviewState of ['bound', 'unknown', 'skipped', 'new'] as const) {
+      expect(
+        ambiguousLineHint({ reviewState, suggestions: claimed }),
+      ).toBeNull();
+    }
   });
 });

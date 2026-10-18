@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    ambiguousLineHint,
     receiptLineView,
     suggestionIsBound,
     suggestionTierBadge,
@@ -135,6 +136,7 @@
     {#each lines as line (line.id)}
       {@const view = receiptLineView(line)}
       {@const suggestions = line.suggestions ?? []}
+      {@const ambiguousHint = ambiguousLineHint(line)}
       {@const editableLine = editable && line.isItemChunk}
       <li
         class="receipt-line"
@@ -325,6 +327,9 @@
               </li>
             {/each}
           </ul>
+        {/if}
+        {#if ambiguousHint}
+          <p class="line-ambiguity">{ambiguousHint}</p>
         {/if}
       </li>
     {/each}
@@ -566,5 +571,14 @@
   .suggestion-bound {
     background: none;
     border: 1px solid currentColor;
+  }
+
+  /* Why this row offers two tier-1 chips: matching asked, and the reviewer can
+     see the conflict it refused to resolve. */
+  .line-ambiguity {
+    flex: 1 0 100%;
+    margin: 0;
+    color: var(--amber);
+    font-size: 0.75rem;
   }
 </style>

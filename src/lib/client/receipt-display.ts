@@ -9,6 +9,7 @@
  */
 
 import type {
+  ReceiptDetailLine,
   ReceiptLine,
   ReceiptStatus,
   ReceiptSuggestion,
@@ -99,6 +100,25 @@ export function suggestionIsBound(
     line.reviewState === 'bound' &&
     line.catalogItemId === suggestion.catalogItemId
   );
+}
+
+/**
+ * Why a line offers more than one tier-1 candidate: two or more items claim the
+ * phrase, so matching asked instead of binding it (`ADR 0003`). Only an
+ * undecided line is being asked about — once the reviewer has decided (bound,
+ * unknown, skipped, or a draft) the note has nothing left to explain, and a
+ * committed receipt's lines have all left `unreviewed`, so its read-only rows
+ * stay quiet too. `null` on every line with nothing to explain.
+ */
+export function ambiguousLineHint(
+  line: Pick<ReceiptDetailLine, 'suggestions' | 'reviewState'>,
+): string | null {
+  if (line.reviewState !== 'unreviewed') return null;
+  const claiming = line.suggestions.filter(
+    (suggestion) => suggestion.tier === 1,
+  ).length;
+  if (claiming < 2) return null;
+  return `${claiming} items claim this phrase — matching asks instead of guessing.`;
 }
 
 /**

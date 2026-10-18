@@ -8,12 +8,19 @@
     uploadReceipt,
   } from '../../client/receipt-upload';
   import { isReceiptInFlight } from '../../client/receipt-display';
+  import {
+    aliasDeleteErrorMessage,
+    fetchAliasOverview,
+    submitAliasDelete,
+  } from '../../client/receipt-aliases';
   import type {
     CatalogItemOption,
     GroupOption,
   } from '../../client/receipt-binding';
+  import ReceiptAliases from './ReceiptAliases.svelte';
   import ReceiptReviewEditor from './ReceiptReviewEditor.svelte';
   import type {
+    AliasOverview,
     ReceiptDetail,
     ReceiptListItem,
     ReceiptListPage,
@@ -78,6 +85,18 @@
   let captureProgress = $state<number | null>(null);
   let captureNotice = $state('');
   let captureError = $state('');
+
+  // The alias surface is the tab's second view: the same feature flag gates it,
+  // and it reads its own endpoint (aliases never enter the snapshot).
+  let view = $state<'list' | 'aliases'>('list');
+  let aliasOverview = $state<AliasOverview | null>(null);
+  let aliasesLoading = $state(false);
+  let aliasesError = $state('');
+  let aliasNotice = $state('');
+  let aliasActionError = $state('');
+  let includeDeletedAliases = $state(false);
+  let aliasPendingDeleteId = $state<string | null>(null);
+  let aliasBusyId = $state<string | null>(null);
 
   onMount(() => {
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -267,6 +286,67 @@
       timeStyle: 'short',
     });
   }
+
+  // -------------------------------------------------------------------------
+  // The alias surface. Its state lives here so the component that renders it
+  // stays pure; deleting is a two-tap confirm, like the discard path, because
+  // stopping an auto-bind is a deliberate act.
+  // -------------------------------------------------------------------------
+
+  async function openAliases(): Promise<void> {
+    view = 'aliases';
+    includeDeletedAliases = false;
+    aliasPendingDeleteId = null;
+    aliasNotice = '';
+    aliasActionError = '';
+    await loadAliases();
+  }
+
+  function closeAliases(): void {
+    view = 'list';
+    aliasPendingDeleteId = null;
+    aliasActionError = '';
+  }
+
+  async function loadAliases(): Promise<void> {
+    aliasesLoading = true;
+    aliasesError = '';
+    try {
+      aliasOverview = await fetchAliasOverview();
+    } catch {
+      aliasesError = 'Aliases are unavailable. Refresh and try again.';
+    } finally {
+      aliasesLoading = false;
+    }
+  }
+
+  function requestAliasDelete(aliasId: string): void {
+    aliasPendingDeleteId = aliasId;
+    aliasNotice = '';
+    aliasActionError = '';
+  }
+
+  function cancelAliasDelete(): void {
+    aliasPendingDeleteId = null;
+  }
+
+  async function confirmAliasDelete(aliasId: string): Promise<void> {
+    aliasBusyId = aliasId;
+    aliasActionError = '';
+    try {
+      // The server answers with the fresh overview, so a resolved ambiguity and
+      // the deleted row both appear without a second round trip.
+      aliasOverview = await submitAliasDelete(aliasId);
+      aliasNotice =
+        'Alias deleted — matching will no longer auto-bind that wording.';
+    } catch (error) {
+      aliasActionError = aliasDeleteErrorMessage(error);
+      await loadAliases();
+    } finally {
+      aliasBusyId = null;
+      aliasPendingDeleteId = null;
+    }
+  }
 </script>
 
 <section
@@ -275,12 +355,61 @@
 >
   <div class="list-heading">
     <div>
-      <p class="eyebrow">Photographed purchases</p>
-      <h2 id="receipts-heading">Receipts</h2>
+      <p class="eyebrow">
+        {view === 'aliases'
+          ? 'Learned printed wordings'
+          : 'Photographed purchases'}
+      </p>
+      <h2 id={view === 'aliases' ? 'aliases-heading' : 'receipts-heading'}>
+        {view === 'aliases' ? 'Aliases' : 'Receipts'}
+      </h2>
     </div>
+    {#if view === 'list'}
+      <button
+        class="alias-open"
+        type="button"
+        title="Manage the wordings items answer to"
+        onclick={openAliases}
+      >
+        Aliases
+      </button>
+    {/if}
   </div>
 
-  {#if selectedId}
+  {#if view === 'aliases'}
+    <div class="alias-view">
+      <button
+        class="quiet-button back-button"
+        type="button"
+        onclick={closeAliases}
+      >
+        ← Back to receipts
+      </button>
+
+      {#if aliasesError}
+        <p class="message error-message" role="alert">{aliasesError}</p>
+      {/if}
+
+      {#if aliasOverview}
+        <ReceiptAliases
+          overview={aliasOverview}
+          {writable}
+          includeDeleted={includeDeletedAliases}
+          pendingDeleteId={aliasPendingDeleteId}
+          busyAliasId={aliasBusyId}
+          error={aliasActionError}
+          notice={aliasNotice}
+          onToggleDeleted={() =>
+            (includeDeletedAliases = !includeDeletedAliases)}
+          onRequestDelete={requestAliasDelete}
+          onCancelDelete={cancelAliasDelete}
+          onConfirmDelete={confirmAliasDelete}
+        />
+      {:else if aliasesLoading}
+        <p class="empty-list">Loading aliases…</p>
+      {/if}
+    </div>
+  {:else if selectedId}
     <div class="receipt-detail">
       <button
         class="quiet-button back-button"
@@ -441,6 +570,28 @@
 </section>
 
 <style>
+  .list-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  /* The entry point to the second view: quiet beside the tab's own heading. */
+  .alias-open {
+    padding: 0.35rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-inset);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+  }
+
+  .alias-view {
+    display: grid;
+    gap: 0.75rem;
+  }
+
   .capture-row {
     display: flex;
     margin: 0.75rem 0 0.25rem;

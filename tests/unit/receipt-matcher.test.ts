@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { normalizeName } from '../../src/lib/shared/normalize';
 import {
   MAX_SUGGESTIONS,
+  ambiguousPhrases,
   jaroWinkler,
   matchReceiptLine,
   phraseForLine,
@@ -45,6 +46,7 @@ function context(
     items,
     aliases: aliases.map(({ alias, item: target }) => ({
       catalogItemId: target.catalogItemId,
+      aliasText: alias,
       normalizedAlias: normalizeName(alias),
     })),
   };
@@ -176,6 +178,107 @@ describe('tier 1 — the ambiguity guard', () => {
 
     expect(result.bind).toBeNull();
     expect(result.suggestions).toHaveLength(MAX_SUGGESTIONS);
+  });
+});
+
+describe('ambiguousPhrases — the phrases matching refuses to resolve', () => {
+  it('reports a phrase claimed by two items, with the printed wording', () => {
+    const flakes = item('Flakes');
+    const cereal = item('Cereal');
+
+    const ambiguous = ambiguousPhrases(
+      context(
+        [flakes, cereal],
+        [
+          { alias: 'CORN FLAKES', item: flakes },
+          { alias: 'CORN FLAKES', item: cereal },
+        ],
+      ),
+    );
+
+    expect(ambiguous).toEqual([
+      {
+        phrase: 'CORN FLAKES',
+        normalizedPhrase: 'corn flakes',
+        items: [
+          { catalogItemId: cereal.catalogItemId, name: 'Cereal' },
+          { catalogItemId: flakes.catalogItemId, name: 'Flakes' },
+        ],
+      },
+    ]);
+  });
+
+  it('counts an item name and another item\u2019s alias as the conflict', () => {
+    const milk = item('Milk');
+    const otherMilk = item('Buttermilk');
+
+    const ambiguous = ambiguousPhrases(
+      context([milk, otherMilk], [{ alias: 'MILK', item: otherMilk }]),
+    );
+
+    // The household name is the wording shown: it is what the reviewer called
+    // the item, and the alias is the printed variant in conflict with it.
+    expect(ambiguous).toEqual([
+      {
+        phrase: 'Milk',
+        normalizedPhrase: 'milk',
+        items: [
+          { catalogItemId: otherMilk.catalogItemId, name: 'Buttermilk' },
+          { catalogItemId: milk.catalogItemId, name: 'Milk' },
+        ],
+      },
+    ]);
+  });
+
+  it('leaves a phrase only one item claims alone', () => {
+    const bread = item('Bread');
+    const milk = item('Milk');
+
+    expect(
+      ambiguousPhrases(
+        context([milk, bread], [{ alias: 'SOURDOUGH BREAD', item: bread }]),
+      ),
+    ).toEqual([]);
+  });
+
+  it('does not report two aliases that point at the same item', () => {
+    const bread = item('Bread');
+
+    expect(
+      ambiguousPhrases(
+        context(
+          [bread],
+          [
+            { alias: 'SOURDOUGH BREAD', item: bread },
+            { alias: 'SOURDOUGH LOAF', item: bread },
+          ],
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it('orders phrases by their normalized form, not by claim order', () => {
+    const first = item('Zucchini');
+    const second = item('Zucchini Bread');
+    const a = item('Apples');
+    const b = item('Applesauce');
+
+    const ambiguous = ambiguousPhrases(
+      context(
+        [first, second, a, b],
+        [
+          { alias: 'ZUCCHINI', item: first },
+          { alias: 'ZUCCHINI', item: second },
+          { alias: 'APPLES', item: a },
+          { alias: 'APPLES', item: b },
+        ],
+      ),
+    );
+
+    expect(ambiguous.map((entry) => entry.normalizedPhrase)).toEqual([
+      'apples',
+      'zucchini',
+    ]);
   });
 });
 

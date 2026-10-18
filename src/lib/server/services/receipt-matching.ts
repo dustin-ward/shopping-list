@@ -49,6 +49,7 @@ export function loadMatchContext(
   const aliases = database
     .prepare(
       `SELECT a.catalog_item_id AS catalogItemId,
+              a.alias_text AS aliasText,
               a.normalized_alias AS normalizedAlias
          FROM item_aliases a
         WHERE a.list_id = ? AND ${HUMAN_CONFIRMED_ALIASES}
