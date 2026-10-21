@@ -352,6 +352,51 @@ export const aliasOverviewSchema = z.object({
 });
 
 /**
+ * One wording the household could not identify (ticket 17; plan §13 "R2 —
+ * matching maturity": the unknown-line grouped browser). Every committed item
+ * line the reviewer marked unknown whose printed text normalizes the same joins
+ * one group, so the group's count and money are the unidentified spending for
+ * that wording — and binding the wording resolves every constituent line.
+ * `printedText` is the most recently committed printing, which is the wording
+ * shown and the one an alias is learned from.
+ */
+export const unknownLineGroupSchema = z.object({
+  normalizedText: z.string(),
+  printedText: z.string(),
+  lineCount: z.number().int().min(1),
+  receiptCount: z.number().int().min(1),
+  spendMinor: z.number().int(),
+});
+
+/** `GET /api/unknown-lines`: the unidentified-spending view. */
+export const unknownLinesOverviewSchema = z.object({
+  currency: z.string(),
+  groups: z.array(unknownLineGroupSchema),
+  lineCount: z.number().int().min(0),
+  spendMinor: z.number().int(),
+});
+
+/**
+ * `POST /api/unknown-lines/bind`: bind one grouped wording to an item. The
+ * group is named by its normalized text — the key the browser reads — and the
+ * server binds only the committed unknown lines that still carry that phrase.
+ * The empty string names the group of lines with no printed wording; those
+ * lines bind but teach no alias.
+ */
+export const unknownLinesBindSchema = z
+  .object({
+    normalizedText: z.string().trim().max(300),
+    catalogItemId: uuidSchema,
+  })
+  .strict();
+
+/** The fresh view after a bind, plus how many lines it changed. */
+export const unknownLinesBindResultSchema = z.object({
+  overview: unknownLinesOverviewSchema,
+  boundLineCount: z.number().int().min(0),
+});
+
+/**
  * One line's review edits. Every field is optional: the editor sends what the
  * reviewer touched and nothing else, so two edits of the same line never fight
  * over fields neither of them changed.
@@ -529,6 +574,12 @@ export type ItemAlias = z.infer<typeof itemAliasSchema>;
 export type ItemAliases = z.infer<typeof itemAliasesSchema>;
 export type AmbiguousPhrase = z.infer<typeof ambiguousPhraseSchema>;
 export type AliasOverview = z.infer<typeof aliasOverviewSchema>;
+export type UnknownLineGroup = z.infer<typeof unknownLineGroupSchema>;
+export type UnknownLinesOverview = z.infer<typeof unknownLinesOverviewSchema>;
+export type UnknownLinesBindInput = z.infer<typeof unknownLinesBindSchema>;
+export type UnknownLinesBindResult = z.infer<
+  typeof unknownLinesBindResultSchema
+>;
 export type ReceiptLineEdit = z.infer<typeof receiptLineEditSchema>;
 export type UpdateReceiptInput = z.infer<typeof updateReceiptSchema>;
 export type CommitReceiptInput = z.infer<typeof commitReceiptSchema>;

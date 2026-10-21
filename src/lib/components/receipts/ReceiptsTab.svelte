@@ -13,18 +13,27 @@
     fetchAliasOverview,
     submitAliasDelete,
   } from '../../client/receipt-aliases';
+  import {
+    fetchUnknownLinesOverview,
+    submitUnknownBind,
+    unknownBindErrorMessage,
+    unknownBindNotice,
+  } from '../../client/receipt-unknowns';
   import type {
     CatalogItemOption,
     GroupOption,
   } from '../../client/receipt-binding';
   import ReceiptAliases from './ReceiptAliases.svelte';
   import ReceiptReviewEditor from './ReceiptReviewEditor.svelte';
+  import ReceiptUnknowns from './ReceiptUnknowns.svelte';
   import type {
     AliasOverview,
     ReceiptDetail,
     ReceiptListItem,
     ReceiptListPage,
     ReceiptStatus,
+    UnknownLineGroup,
+    UnknownLinesOverview,
   } from '../../shared/schemas';
 
   // Capture writes to the server, so the page hands down the existing `canWrite`
@@ -87,8 +96,10 @@
   let captureError = $state('');
 
   // The alias surface is the tab's second view: the same feature flag gates it,
-  // and it reads its own endpoint (aliases never enter the snapshot).
-  let view = $state<'list' | 'aliases'>('list');
+  // and it reads its own endpoint (aliases never enter the snapshot). The
+  // unknown-line browser is the third: the same rule, reading the grouped view
+  // that is also the unidentified-spending total.
+  let view = $state<'list' | 'aliases' | 'unknowns'>('list');
   let aliasOverview = $state<AliasOverview | null>(null);
   let aliasesLoading = $state(false);
   let aliasesError = $state('');
@@ -97,6 +108,21 @@
   let includeDeletedAliases = $state(false);
   let aliasPendingDeleteId = $state<string | null>(null);
   let aliasBusyId = $state<string | null>(null);
+
+  let unknownOverview = $state<UnknownLinesOverview | null>(null);
+  let unknownsLoading = $state(false);
+  let unknownsError = $state('');
+  let unknownNotice = $state('');
+  let unknownActionError = $state('');
+  let unknownPending = $state<Record<string, string>>({});
+  let unknownBusyGroup = $state<string | null>(null);
+
+  /** The copy each view adds above the shared receipt data. */
+  const viewCopy = {
+    list: { eyebrow: 'Photographed purchases', heading: 'Receipts' },
+    aliases: { eyebrow: 'Learned printed wordings', heading: 'Aliases' },
+    unknowns: { eyebrow: 'Unidentified spending', heading: 'Unknown lines' },
+  } as const;
 
   onMount(() => {
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -347,6 +373,85 @@
       aliasPendingDeleteId = null;
     }
   }
+
+  // -------------------------------------------------------------------------
+  // The unknown-line browser. Its state lives here for the same reason the
+  // alias surface's does — the component stays a renderer — and the bind is a
+  // two-tap act because one tap moves every line printing that wording.
+  // -------------------------------------------------------------------------
+
+  async function openUnknowns(): Promise<void> {
+    view = 'unknowns';
+    unknownPending = {};
+    unknownNotice = '';
+    unknownActionError = '';
+    await loadUnknowns();
+  }
+
+  function closeUnknowns(): void {
+    view = 'list';
+    unknownPending = {};
+    unknownActionError = '';
+    // Binding lines changes receipts' `hasUnknowns`, which the list filters on.
+    void loadPage(true);
+  }
+
+  async function loadUnknowns(): Promise<void> {
+    unknownsLoading = true;
+    unknownsError = '';
+    try {
+      unknownOverview = await fetchUnknownLinesOverview();
+    } catch {
+      unknownsError = 'Unknown lines are unavailable. Refresh and try again.';
+    } finally {
+      unknownsLoading = false;
+    }
+  }
+
+  function selectUnknownItem(
+    group: UnknownLineGroup,
+    catalogItemId: string,
+  ): void {
+    unknownPending = {
+      ...unknownPending,
+      [group.normalizedText]: catalogItemId,
+    };
+    unknownNotice = '';
+    unknownActionError = '';
+  }
+
+  function cancelUnknownItem(group: UnknownLineGroup): void {
+    const { [group.normalizedText]: _cancelled, ...rest } = unknownPending;
+    unknownPending = rest;
+  }
+
+  async function confirmUnknownBind(
+    group: UnknownLineGroup,
+    catalogItemId: string,
+  ): Promise<void> {
+    unknownBusyGroup = group.normalizedText;
+    unknownActionError = '';
+    try {
+      // The answer is the fresh grouped view, so a group the server emptied
+      // cannot linger, and the count is what it actually changed.
+      const result = await submitUnknownBind(
+        group.normalizedText,
+        catalogItemId,
+      );
+      unknownOverview = result.overview;
+      const itemName =
+        catalogItems.find((item) => item.id === catalogItemId)?.name ??
+        'this item';
+      unknownNotice = unknownBindNotice(group, itemName, result.boundLineCount);
+      cancelUnknownItem(group);
+      void loadPage(true);
+    } catch (error) {
+      unknownActionError = unknownBindErrorMessage(error);
+      await loadUnknowns();
+    } finally {
+      unknownBusyGroup = null;
+    }
+  }
 </script>
 
 <section
@@ -355,24 +460,28 @@
 >
   <div class="list-heading">
     <div>
-      <p class="eyebrow">
-        {view === 'aliases'
-          ? 'Learned printed wordings'
-          : 'Photographed purchases'}
-      </p>
-      <h2 id={view === 'aliases' ? 'aliases-heading' : 'receipts-heading'}>
-        {view === 'aliases' ? 'Aliases' : 'Receipts'}
-      </h2>
+      <p class="eyebrow">{viewCopy[view].eyebrow}</p>
+      <h2 id="receipts-heading">{viewCopy[view].heading}</h2>
     </div>
     {#if view === 'list'}
-      <button
-        class="alias-open"
-        type="button"
-        title="Manage the wordings items answer to"
-        onclick={openAliases}
-      >
-        Aliases
-      </button>
+      <div class="view-actions">
+        <button
+          class="view-open"
+          type="button"
+          title="Wordings nobody could identify, grouped"
+          onclick={openUnknowns}
+        >
+          Unknowns
+        </button>
+        <button
+          class="view-open"
+          type="button"
+          title="Manage the wordings items answer to"
+          onclick={openAliases}
+        >
+          Aliases
+        </button>
+      </div>
     {/if}
   </div>
 
@@ -407,6 +516,37 @@
         />
       {:else if aliasesLoading}
         <p class="empty-list">Loading aliases…</p>
+      {/if}
+    </div>
+  {:else if view === 'unknowns'}
+    <div class="unknown-view">
+      <button
+        class="quiet-button back-button"
+        type="button"
+        onclick={closeUnknowns}
+      >
+        ← Back to receipts
+      </button>
+
+      {#if unknownsError}
+        <p class="message error-message" role="alert">{unknownsError}</p>
+      {/if}
+
+      {#if unknownOverview}
+        <ReceiptUnknowns
+          overview={unknownOverview}
+          {catalogItems}
+          {writable}
+          pending={unknownPending}
+          busyGroup={unknownBusyGroup}
+          error={unknownActionError}
+          notice={unknownNotice}
+          onBind={confirmUnknownBind}
+          onSelect={selectUnknownItem}
+          onCancel={cancelUnknownItem}
+        />
+      {:else if unknownsLoading}
+        <p class="empty-list">Loading unknown lines…</p>
       {/if}
     </div>
   {:else if selectedId}
@@ -577,8 +717,8 @@
     gap: 1rem;
   }
 
-  /* The entry point to the second view: quiet beside the tab's own heading. */
-  .alias-open {
+  /* The entry point to another view: quiet beside the tab's own heading. */
+  .view-open {
     padding: 0.35rem 0.7rem;
     border: 1px solid var(--line);
     border-radius: 999px;
@@ -588,6 +728,16 @@
   }
 
   .alias-view {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .view-actions {
+    display: flex;
+    gap: 0.4rem;
+  }
+
+  .unknown-view {
     display: grid;
     gap: 0.75rem;
   }

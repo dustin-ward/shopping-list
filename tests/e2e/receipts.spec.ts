@@ -511,6 +511,108 @@ test('the has-unknowns chip lists only receipts with unknown lines', async ({
   await expect(cards).toHaveCount(all.items.length);
 });
 
+test('browses unknown lines by wording and binds a whole group to an item', async ({
+  page,
+  request,
+}) => {
+  // A phrase unique to this run: the unknown browser groups across the whole
+  // list, so a fixed wording could carry lines from earlier runs.
+  const suffix = randomUUID().slice(0, 8);
+  const phrase = `MYSTERY ${suffix.toUpperCase()}`;
+  const itemName = `Mystery item ${suffix}`;
+  const storeName = `Harbor Market ${suffix}`;
+  await seedItem(request, itemName);
+  await seedStore(request, storeName);
+  const receiptId = await captureUnique(request, `unknown-browser-${suffix}`);
+
+  await openReceiptsTab(page);
+  await openNewestReceipt(page);
+
+  // The fixture's milk row is reworded to this run's phrase, then left unknown —
+  // exactly the observation a reviewer commits without an item.
+  const milk = lineRow(page, 'MILK 2% 1L');
+  await milk.getByLabel('Printed text').fill(phrase);
+  await milk.getByLabel('Printed text').press('Enter');
+  await milk.getByRole('button', { name: /can't identify/i }).click();
+  await expect(milk.locator('.line-state')).toHaveText('Unknown');
+  for (const parsedName of [
+    'SOURDOUGH BREAD',
+    'GALA APPLES',
+    'CHEDDAR CHEESE',
+  ]) {
+    await lineRow(page, parsedName)
+      .getByRole('button', { name: /can't identify/i })
+      .click();
+  }
+  await page.locator('.store-select').selectOption({ label: storeName });
+  await page.getByRole('button', { name: 'Commit receipt' }).click();
+  await expect(page.locator('.receipt-detail .status-chip')).toHaveText(
+    'Committed',
+    { timeout: 15_000 },
+  );
+
+  // The grouped browser reads committed receipts only, and doubles as the
+  // unidentified-spending view.
+  await page.getByRole('button', { name: 'Back to receipts' }).click();
+  await page.getByRole('button', { name: 'Unknowns', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Unknown lines' }),
+  ).toBeVisible();
+  await expect(page.locator('.unknown-total')).toContainText('unidentified');
+
+  const group = page.locator('.unknown-group', { hasText: phrase });
+  await expect(group.locator('.unknown-text')).toHaveText(phrase);
+  await expect(group.locator('.unknown-count')).toHaveText('1 line');
+  await expect(group.locator('.unknown-spend')).toContainText('3.49');
+
+  // Choosing an item only asks — one tap must not move every line printing the
+  // wording.
+  await group.getByLabel(`Find item for ${phrase}`).fill(itemName);
+  await group.locator('.unknown-match', { hasText: itemName }).click();
+  await expect(group.locator('.unknown-question')).toContainText(
+    `Bind 1 line to ${itemName}`,
+  );
+  await expect(group.locator('.unknown-question')).toContainText(
+    'Matching will learn',
+  );
+  await group.getByRole('button', { name: 'Bind 1 line' }).click();
+
+  await expect(page.locator('.unknown-notice')).toContainText(
+    'Matching will learn',
+  );
+  // The group is gone from the unidentified-spending view.
+  await expect(page.locator('.unknown-group', { hasText: phrase })).toHaveCount(
+    0,
+  );
+
+  // Every constituent line carries the pick with a manual provenance…
+  const household = await readHousehold(request);
+  const itemId = household.catalogItems.find(
+    (item) => item.name === itemName,
+  )?.id;
+  expect(itemId).toBeDefined();
+  expect(await storedLine(request, receiptId, phrase)).toMatchObject({
+    reviewState: 'bound',
+    catalogItemId: itemId,
+    boundVia: 'manual',
+    boundRank: null,
+  });
+
+  // …and the wording is a live alias, so the next receipt printing it binds by
+  // itself (the integration tests exercise that rebind end to end).
+  const aliases = (await (await request.get('/api/aliases')).json()) as {
+    items: {
+      name: string;
+      aliases: { aliasText: string; deletedAt: string | null }[];
+    }[];
+  };
+  expect(
+    aliases.items
+      .find((item) => item.name === itemName)
+      ?.aliases.find((alias) => alias.aliasText === phrase)?.deletedAt,
+  ).toBeNull();
+});
+
 test('binds a suggestion and drafts an item and a store without creating rows', async ({
   page,
   request,

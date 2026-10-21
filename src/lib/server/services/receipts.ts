@@ -609,7 +609,7 @@ function toEditableLine(row: EditableLineRow): EditableLine {
   };
 }
 
-function requireLiveCatalogItem(
+export function requireLiveCatalogItem(
   database: SqliteDatabase,
   listId: string,
   catalogItemId: string,
@@ -831,8 +831,11 @@ function createStoreGroup(
  * revived (relearning is what revives it), and anything else is a new row. A
  * revival is a review whatever wrote the row first, so `source` is rewritten
  * with the rest — matching only ever binds from a human-confirmed alias.
+ *
+ * Exported for the grouped unknown-line browser (ticket 17): binding a whole
+ * wording is the same review act, learned from the wording the surface showed.
  */
-function learnAlias(
+export function learnAlias(
   database: SqliteDatabase,
   listId: string,
   catalogItemId: string,
