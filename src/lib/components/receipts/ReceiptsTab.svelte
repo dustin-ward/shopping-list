@@ -19,15 +19,21 @@
     unknownBindErrorMessage,
     unknownBindNotice,
   } from '../../client/receipt-unknowns';
+  import {
+    fetchMatchingStats,
+    matchingStatsErrorMessage,
+  } from '../../client/receipt-matching-stats';
   import type {
     CatalogItemOption,
     GroupOption,
   } from '../../client/receipt-binding';
   import ReceiptAliases from './ReceiptAliases.svelte';
+  import ReceiptMatchingStats from './ReceiptMatchingStats.svelte';
   import ReceiptReviewEditor from './ReceiptReviewEditor.svelte';
   import ReceiptUnknowns from './ReceiptUnknowns.svelte';
   import type {
     AliasOverview,
+    MatchingStats,
     ReceiptDetail,
     ReceiptListItem,
     ReceiptListPage,
@@ -98,8 +104,10 @@
   // The alias surface is the tab's second view: the same feature flag gates it,
   // and it reads its own endpoint (aliases never enter the snapshot). The
   // unknown-line browser is the third: the same rule, reading the grouped view
-  // that is also the unidentified-spending total.
-  let view = $state<'list' | 'aliases' | 'unknowns'>('list');
+  // that is also the unidentified-spending total. Matching stats is the fourth:
+  // read-only telemetry, and like every receipt read it stays out of the
+  // snapshot.
+  let view = $state<'list' | 'aliases' | 'unknowns' | 'stats'>('list');
   let aliasOverview = $state<AliasOverview | null>(null);
   let aliasesLoading = $state(false);
   let aliasesError = $state('');
@@ -117,11 +125,16 @@
   let unknownPending = $state<Record<string, string>>({});
   let unknownBusyGroup = $state<string | null>(null);
 
+  let matchingStats = $state<MatchingStats | null>(null);
+  let matchingStatsLoading = $state(false);
+  let matchingStatsError = $state('');
+
   /** The copy each view adds above the shared receipt data. */
   const viewCopy = {
     list: { eyebrow: 'Photographed purchases', heading: 'Receipts' },
     aliases: { eyebrow: 'Learned printed wordings', heading: 'Aliases' },
     unknowns: { eyebrow: 'Unidentified spending', heading: 'Unknown lines' },
+    stats: { eyebrow: 'Matching evidence', heading: 'Matching stats' },
   } as const;
 
   onMount(() => {
@@ -452,6 +465,36 @@
       unknownBusyGroup = null;
     }
   }
+
+  // -------------------------------------------------------------------------
+  // Matching stats. The surface is read-only, so it has no pending action and
+  // never refreshes the list: opening it fetches the telemetry, leaving it is
+  // just a view change.
+  // -------------------------------------------------------------------------
+
+  async function openMatchingStats(): Promise<void> {
+    view = 'stats';
+    await loadMatchingStats();
+  }
+
+  function closeMatchingStats(): void {
+    view = 'list';
+  }
+
+  async function loadMatchingStats(): Promise<void> {
+    matchingStatsLoading = true;
+    matchingStatsError = '';
+    // A failed fetch must not leave the previous numbers on screen looking
+    // current: the error is the whole state then.
+    matchingStats = null;
+    try {
+      matchingStats = await fetchMatchingStats();
+    } catch (error) {
+      matchingStatsError = matchingStatsErrorMessage(error);
+    } finally {
+      matchingStatsLoading = false;
+    }
+  }
 </script>
 
 <section
@@ -480,6 +523,14 @@
           onclick={openAliases}
         >
           Aliases
+        </button>
+        <button
+          class="view-open"
+          type="button"
+          title="How committed item lines found their items"
+          onclick={openMatchingStats}
+        >
+          Matching stats
         </button>
       </div>
     {/if}
@@ -547,6 +598,26 @@
         />
       {:else if unknownsLoading}
         <p class="empty-list">Loading unknown lines…</p>
+      {/if}
+    </div>
+  {:else if view === 'stats'}
+    <div class="stats-view">
+      <button
+        class="quiet-button back-button"
+        type="button"
+        onclick={closeMatchingStats}
+      >
+        ← Back to receipts
+      </button>
+
+      {#if matchingStatsError}
+        <p class="message error-message" role="alert">{matchingStatsError}</p>
+      {/if}
+
+      {#if matchingStats}
+        <ReceiptMatchingStats stats={matchingStats} />
+      {:else if matchingStatsLoading}
+        <p class="empty-list">Loading matching stats…</p>
       {/if}
     </div>
   {:else if selectedId}
@@ -738,6 +809,11 @@
   }
 
   .unknown-view {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .stats-view {
     display: grid;
     gap: 0.75rem;
   }

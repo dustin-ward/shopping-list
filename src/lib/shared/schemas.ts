@@ -245,12 +245,19 @@ export const receiptListPageSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 
-export const receiptBoundViaSchema = z.enum([
+/**
+ * The binding provenance values in the order the telemetry surface shows them.
+ * One shared order stops the server's buckets, the client's shares, and the
+ * component's rows from drifting apart.
+ */
+export const RECEIPT_BOUND_VIA_VALUES = [
   'auto',
   'suggested',
   'manual',
   'created',
-]);
+] as const;
+
+export const receiptBoundViaSchema = z.enum(RECEIPT_BOUND_VIA_VALUES);
 
 export const receiptLineSchema = z.object({
   id: uuidSchema,
@@ -394,6 +401,47 @@ export const unknownLinesBindSchema = z
 export const unknownLinesBindResultSchema = z.object({
   overview: unknownLinesOverviewSchema,
   boundLineCount: z.number().int().min(0),
+});
+
+/**
+ * One binding source's share of the committed item lines (ticket 18; plan §7
+ * "Learning loop": binding provenance recorded since R1 feeds suggestion
+ * telemetry). `lineCount` is a count, not a percentage, because the surface that
+ * shows a share can divide by the total it already has and the API stays exact.
+ */
+export const matchingSourceStatSchema = z.object({
+  source: receiptBoundViaSchema,
+  lineCount: z.number().int().min(0),
+});
+
+/** One accepted suggestion rank, counted among the lines bound via `suggested`. */
+export const matchingRankStatSchema = z.object({
+  rank: z.number().int().min(1),
+  lineCount: z.number().int().min(1),
+});
+
+/**
+ * `GET /api/matching-stats`: the read-only evidence base for later scoring or
+ * embedding work (ticket 18). The scope is committed receipts of this list and
+ * their item lines; parked rows are not purchased things and belong to no
+ * binding. The four `sources` are always present in canonical order, even at
+ * zero, and `noBindingLineCount` is the residual — committed item lines that
+ * were marked unknown or skipped, or that carry no provenance — so
+ * `sum(sources) + noBindingLineCount` reconciles with `lineCount`.
+ */
+export const matchingStatsSchema = z.object({
+  committedReceiptCount: z.number().int().min(0),
+  lineCount: z.number().int().min(0),
+  noBindingLineCount: z.number().int().min(0),
+  sources: z.array(matchingSourceStatSchema),
+  suggested: z.object({
+    /** Lines bound via `suggested`, the denominator of the rank distribution. */
+    lineCount: z.number().int().min(0),
+    /** Only ranks that were actually accepted, ascending. */
+    ranks: z.array(matchingRankStatSchema),
+    /** Accepted suggestions stored without a rank, so the distribution reconciles. */
+    unrankedLineCount: z.number().int().min(0),
+  }),
 });
 
 /**
@@ -560,6 +608,7 @@ export type ReorderGroupsInput = z.infer<typeof reorderGroupsSchema>;
 export type Snapshot = z.infer<typeof snapshotSchema>;
 export type PurchaseHistoryPage = z.infer<typeof purchaseHistoryPageSchema>;
 export type ReceiptStatus = z.infer<typeof receiptStatusSchema>;
+export type ReceiptBoundVia = z.infer<typeof receiptBoundViaSchema>;
 export type ReceiptQuantityUnit = z.infer<typeof receiptQuantityUnitSchema>;
 export type ReceiptReviewState = z.infer<typeof receiptReviewStateSchema>;
 export type ReceiptListItem = z.infer<typeof receiptListItemSchema>;
@@ -580,6 +629,7 @@ export type UnknownLinesBindInput = z.infer<typeof unknownLinesBindSchema>;
 export type UnknownLinesBindResult = z.infer<
   typeof unknownLinesBindResultSchema
 >;
+export type MatchingStats = z.infer<typeof matchingStatsSchema>;
 export type ReceiptLineEdit = z.infer<typeof receiptLineEditSchema>;
 export type UpdateReceiptInput = z.infer<typeof updateReceiptSchema>;
 export type CommitReceiptInput = z.infer<typeof commitReceiptSchema>;

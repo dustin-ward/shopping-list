@@ -827,6 +827,97 @@ test('commits a reviewed receipt: the drafts become rows and the view goes read-
   ).toHaveText('Committed');
 });
 
+test('reads matching stats: provenance shares, reconciliation and accepted ranks', async ({
+  page,
+  request,
+}) => {
+  // Names unique to this run: the stats view is a read over the whole committed
+  // corpus, so the test proves its own commit is in it rather than expecting an
+  // exact total a reused database could not promise.
+  const suffix = randomUUID().slice(0, 8);
+  const itemName = `Stats milk ${suffix}`;
+  const storeName = `Stats Market ${suffix}`;
+  await seedItem(request, itemName);
+  await seedStore(request, storeName);
+
+  // Commit one review whose provenance is known: one manual bind and three
+  // unknown lines (the parked rows never count). The bind learns an alias from
+  // the reviewed printed text, so the text is made unique to this run — a
+  // generic wording would auto-bind the alias tests' later receipts.
+  await captureUnique(request, `stats-${suffix}`);
+  await openReceiptsTab(page);
+  await openNewestReceipt(page);
+  const milk = lineRow(page, 'MILK 2% 1L');
+  const printedText = `STATS MILK ${suffix}`;
+  await milk.getByLabel('Printed text').fill(printedText);
+  await milk.getByLabel('Printed text').press('Enter');
+  await expect(milk.getByLabel('Printed text')).toHaveValue(printedText);
+  await milk.getByLabel('Find item').fill(itemName);
+  await milk
+    .locator('.item-matches button.match-button', { hasText: itemName })
+    .click();
+  for (const parsedName of [
+    'SOURDOUGH BREAD',
+    'GALA APPLES',
+    'CHEDDAR CHEESE',
+  ]) {
+    await lineRow(page, parsedName)
+      .getByRole('button', { name: /can't identify/i })
+      .click();
+  }
+  await page.locator('.store-select').selectOption({ label: storeName });
+  await page.getByRole('button', { name: 'Commit receipt' }).click();
+  await expect(page.locator('.receipt-detail .status-chip')).toHaveText(
+    'Committed',
+    { timeout: 15_000 },
+  );
+
+  // The surface is a read-only view of the tab, reached from its secondary
+  // actions; nothing on it writes.
+  await page.getByRole('button', { name: 'Back to receipts' }).click();
+  await page.getByRole('button', { name: 'Matching stats' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Matching stats' }),
+  ).toBeVisible();
+
+  // Every provenance bucket is named, and this run's commit is visible in the
+  // manual and no-binding rows.
+  for (const label of [
+    'Automatic (tier 1)',
+    'Accepted suggestion (tier 2)',
+    'Chosen manually',
+    'Item created in review',
+    'Unknown or skipped',
+  ]) {
+    await expect(page.locator('.stats-sources')).toContainText(label);
+  }
+  const manualCount = Number(
+    await page
+      .locator('[data-source="manual"] .stats-source-count')
+      .textContent(),
+  );
+  const noBindingCount = Number(
+    await page
+      .locator('[data-source="no-binding"] .stats-source-count')
+      .textContent(),
+  );
+  expect(manualCount).toBeGreaterThanOrEqual(1);
+  expect(noBindingCount).toBeGreaterThanOrEqual(3);
+
+  // The reconciliation is on screen, and the rank section answers even when no
+  // suggestion has been accepted yet.
+  await expect(page.locator('.stats-reconciliation')).toContainText(
+    'committed item lines:',
+  );
+  await expect(page.getByText('Accepted suggestions by rank')).toBeVisible();
+  await expect(page.locator('.stats-rank-summary')).toContainText(
+    /accepted suggestion|No accepted suggestions/,
+  );
+
+  await page.getByRole('button', { name: 'Back to receipts' }).click();
+  await expect(page.getByRole('heading', { name: 'Receipts' })).toBeVisible();
+});
+
 test('manages learned aliases: a delete stops auto-binding, the next review relearns it', async ({
   page,
   request,
