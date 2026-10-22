@@ -404,6 +404,107 @@ export const unknownLinesBindResultSchema = z.object({
 });
 
 /**
+ * Everything one canonical item currently owns (ticket 19). The counts are the
+ * audit trail of a merge: a canonical item is the identity that list entries,
+ * receipt lines, purchases and aliases attach to, so moving one item into
+ * another must account for every row, and an admin surface can only claim
+ * "nothing was lost" if it says how many rows it started and ended with.
+ *
+ * `committedReceiptLines` is the subset of `receiptLines` that is price history;
+ * `activeListEntries` is the subset of `listEntries` the one-active-entry-per-
+ * item rule constrains.
+ */
+export const itemReferenceCountsSchema = z.object({
+  receiptLines: z.number().int().min(0),
+  committedReceiptLines: z.number().int().min(0),
+  purchases: z.number().int().min(0),
+  liveAliases: z.number().int().min(0),
+  deletedAliases: z.number().int().min(0),
+  listEntries: z.number().int().min(0),
+  activeListEntries: z.number().int().min(0),
+  categoryMemberships: z.number().int().min(0),
+});
+
+/** One item as the management surface lists it: the household term and its footprint. */
+export const itemSummarySchema = z.object({
+  id: uuidSchema,
+  name: z.string(),
+  counts: itemReferenceCountsSchema,
+});
+
+/** `GET /api/items`: the canonical items of this list, alphabetical, with counts. */
+export const itemOverviewSchema = z.object({
+  items: z.array(itemSummarySchema),
+});
+
+/**
+ * `PATCH /api/items/[id]`: rename the household term.
+ *
+ * `expectedName` is the display name the caller last saw — the catalogue has no
+ * per-row revision, and the name is what the snapshot shows — so a rename from a
+ * stale view refuses instead of overwriting a newer term. Only `display_name`
+ * and `normalized_name` move: printed variants (`receipt_lines.raw_text`,
+ * `parsed_name`) and aliases are untouched, exactly as `ADR 0003` requires.
+ */
+export const renameItemSchema = z
+  .object({
+    serverInstanceId: uuidSchema,
+    expectedName: itemNameSchema,
+    name: itemNameSchema,
+  })
+  .strict();
+
+/** `POST /api/items/[id]/merge`: `[id]` is the absorbed item. */
+export const mergeItemsSchema = z
+  .object({
+    serverInstanceId: uuidSchema,
+    survivorId: uuidSchema,
+    expectedName: itemNameSchema,
+    expectedSurvivorName: itemNameSchema,
+  })
+  .strict();
+
+/** The renamed item, plus how many visible list entries adopted the new term. */
+export const renameItemResultSchema = z.object({
+  serverInstanceId: uuidSchema,
+  revision: z.number().int().min(0),
+  item: z.object({ id: uuidSchema, name: z.string() }),
+  renamedEntryCount: z.number().int().min(0),
+});
+
+/**
+ * The merge's audit report: the two items and their reference counts before and
+ * after the one transaction, plus the alias and membership bookkeeping that
+ * explains the differences. The server computes every "after" count from the
+ * database, not from arithmetic, and refuses the merge if the totals do not
+ * reconcile.
+ */
+export const mergeItemsResultSchema = z.object({
+  serverInstanceId: uuidSchema,
+  revision: z.number().int().min(0),
+  survivor: z.object({ id: uuidSchema, name: z.string() }),
+  absorbed: z.object({ id: uuidSchema, name: z.string() }),
+  before: z.object({
+    survivor: itemReferenceCountsSchema,
+    absorbed: itemReferenceCountsSchema,
+  }),
+  after: z.object({
+    survivor: itemReferenceCountsSchema,
+    absorbed: itemReferenceCountsSchema,
+  }),
+  /** Absorbed alias rows re-pointed at the survivor (deleted ones included). */
+  aliasesMoved: z.number().int().min(0),
+  /** Absorbed live aliases soft-deleted because the survivor already claimed the phrase. */
+  aliasesRetired: z.number().int().min(0),
+  /** A new alias row teaching the absorbed household term to the survivor. */
+  aliasesLearned: z.number().int().min(0),
+  /** A soft-deleted survivor alias revived for the absorbed household term. */
+  aliasesRevived: z.number().int().min(0),
+  /** Absorbed category memberships the survivor already had. */
+  membershipsDropped: z.number().int().min(0),
+});
+
+/**
  * One binding source's share of the committed item lines (ticket 18; plan §7
  * "Learning loop": binding provenance recorded since R1 feeds suggestion
  * telemetry). `lineCount` is a count, not a percentage, because the surface that
@@ -630,6 +731,13 @@ export type UnknownLinesBindResult = z.infer<
   typeof unknownLinesBindResultSchema
 >;
 export type MatchingStats = z.infer<typeof matchingStatsSchema>;
+export type ItemReferenceCounts = z.infer<typeof itemReferenceCountsSchema>;
+export type ItemSummary = z.infer<typeof itemSummarySchema>;
+export type ItemOverview = z.infer<typeof itemOverviewSchema>;
+export type RenameItemInput = z.infer<typeof renameItemSchema>;
+export type RenameItemResult = z.infer<typeof renameItemResultSchema>;
+export type MergeItemsInput = z.infer<typeof mergeItemsSchema>;
+export type MergeItemsResult = z.infer<typeof mergeItemsResultSchema>;
 export type ReceiptLineEdit = z.infer<typeof receiptLineEditSchema>;
 export type UpdateReceiptInput = z.infer<typeof updateReceiptSchema>;
 export type CommitReceiptInput = z.infer<typeof commitReceiptSchema>;

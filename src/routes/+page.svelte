@@ -11,6 +11,7 @@
     saveOfflineSnapshot,
   } from '../lib/client/offline';
   import ReceiptsTab from '../lib/components/receipts/ReceiptsTab.svelte';
+  import ItemsTab from '../lib/components/items/ItemsTab.svelte';
   import { normalizeName } from '../lib/shared/normalize';
   import {
     DEFAULT_GROUP_COLOR,
@@ -19,7 +20,7 @@
     type Snapshot,
   } from '../lib/shared/schemas';
 
-  type Screen = 'list' | 'groups' | 'history' | 'receipts';
+  type Screen = 'list' | 'groups' | 'history' | 'receipts' | 'items';
   const UNGROUPED_SECTION_ID = 'ungrouped';
   type ActiveEntrySection = {
     id: string;
@@ -410,6 +411,19 @@
     window.location.reload();
   }
 
+  /** The refreshed snapshot covers the write that just committed. */
+  function snapshotCoversWrite(
+    result: { serverInstanceId: string; revision: number },
+    refreshed: boolean,
+  ): boolean {
+    const current = snapshotCoordinator.getState().snapshot;
+    return (
+      refreshed &&
+      current?.serverInstanceId === result.serverInstanceId &&
+      current.revision >= result.revision
+    );
+  }
+
   async function mutate(
     path: string,
     method: string,
@@ -431,12 +445,7 @@
         result.revision,
       );
       const refreshed = await refreshSnapshot();
-      const current = snapshotCoordinator.getState().snapshot;
-      if (
-        refreshed &&
-        current?.serverInstanceId === result.serverInstanceId &&
-        current.revision >= result.revision
-      ) {
+      if (snapshotCoversWrite(result, refreshed)) {
         notice = 'Saved.';
       } else {
         errorMessage =
@@ -753,6 +762,26 @@
     if (nextScreen === 'history' && !historyLoaded) await loadHistory(true);
   }
 
+  /**
+   * An item rename or merge changed snapshot-visible rows (items and their list
+   * entries). The item screen reloads its own counts; the page owns the shared
+   * snapshot, so it requires the write's revision and refreshes it.
+   */
+  async function handleItemChanged(result: {
+    serverInstanceId: string;
+    revision: number;
+  }): Promise<void> {
+    snapshotCoordinator.requireRevision(
+      result.serverInstanceId,
+      result.revision,
+    );
+    const refreshed = await refreshSnapshot();
+    if (!snapshotCoversWrite(result, refreshed)) {
+      errorMessage =
+        'Saved, but the latest list could not be loaded. Refresh before making another change.';
+    }
+  }
+
   async function loadHistory(reset: boolean): Promise<void> {
     if (historyLoading) return;
     historyLoading = true;
@@ -970,6 +999,13 @@
         onclick={() => openScreen('groups')}
       >
         Groups
+      </button>
+      <button
+        class:active={screen === 'items'}
+        aria-current={screen === 'items' ? 'page' : undefined}
+        onclick={() => openScreen('items')}
+      >
+        Items
       </button>
       <button
         class:active={screen === 'history'}
@@ -1707,6 +1743,12 @@
         </p>
       {/if}
     </section>
+  {:else if screen === 'items'}
+    <ItemsTab
+      writable={canWrite}
+      serverInstanceId={snapshot.serverInstanceId}
+      onChanged={handleItemChanged}
+    />
   {:else if screen === 'receipts'}
     <ReceiptsTab
       writable={canWrite}
