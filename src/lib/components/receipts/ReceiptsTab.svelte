@@ -50,10 +50,15 @@
     writable = false,
     catalogItems = [],
     groups = [],
+    receiptToOpen = null,
+    onReceiptOpened = () => {},
   }: {
     writable?: boolean;
     catalogItems?: readonly CatalogItemOption[];
     groups?: readonly GroupOption[];
+    /** A committed receipt the Prices sheet asked to open, once. */
+    receiptToOpen?: string | null;
+    onReceiptOpened?: () => void;
   } = $props();
 
   const STATUS_LABELS: Record<ReceiptStatus, string> = {
@@ -140,6 +145,9 @@
   onMount(() => {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     void loadPage(true);
+    if (receiptToOpen) {
+      void openDetail(receiptToOpen).finally(onReceiptOpened);
+    }
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       stopPolling();

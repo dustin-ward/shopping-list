@@ -129,6 +129,7 @@ function renderItems(
         onMergeConfirm: noop,
         onMergeCancel: noop,
         onReportDismiss: noop,
+        onPrices: noop,
       },
     }).body,
   );
@@ -173,6 +174,14 @@ describe('ItemManagement — the list', () => {
     expect(body).not.toContain('Rename');
     expect(body).not.toContain('Merge into');
     expect(body).toContain('Milk');
+  });
+
+  it('offers prices on every item even when the list is read-only', () => {
+    const body = renderItems(household, { writable: false });
+
+    // Prices are a read of committed receipts, not a write.
+    expect(body).toContain('aria-label="Prices for Milk"');
+    expect(body).toContain('aria-label="Prices for Whole milk"');
   });
 
   it('explains the empty state', () => {

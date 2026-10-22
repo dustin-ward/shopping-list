@@ -12,6 +12,7 @@
   } from '../lib/client/offline';
   import ReceiptsTab from '../lib/components/receipts/ReceiptsTab.svelte';
   import ItemsTab from '../lib/components/items/ItemsTab.svelte';
+  import { fetchItemPrices, pricesNudge } from '../lib/client/item-prices';
   import { normalizeName } from '../lib/shared/normalize';
   import {
     DEFAULT_GROUP_COLOR,
@@ -72,6 +73,10 @@
   let addNote = $state('');
   let addGroupIds = $state<string[]>([]);
   let addGroupsTouched = $state(false);
+  /** "$3.49 last week at Hen House" — advisory, from the same prices read. */
+  let addPriceNudge = $state<string | null>(null);
+  let addPriceNudgeRequest = 0;
+  let addPriceNudgeTimer: ReturnType<typeof setTimeout> | null = null;
 
   let editingEntryId = $state<string | null>(null);
   let editingEntryGroupId = $state<string | null>(null);
@@ -96,6 +101,8 @@
   let historyLoaded = $state(false);
   let historyLoading = $state(false);
   let historyError = $state('');
+  /** A committed receipt the Prices sheet asked to open; cleared once opened. */
+  let receiptToOpen = $state<string | null>(null);
   let cacheWritesSuppressed = false;
   let persistedAt: number | null = null;
   let cacheWriteQueue: Promise<void> = Promise.resolve();
@@ -338,6 +345,7 @@
 
   async function openAddForm(groupId?: string): Promise<void> {
     addFormOpen = true;
+    clearAddPriceNudge();
     if (groupId) {
       addGroupContextId = groupId;
       addDetailsOpen = true;
@@ -346,6 +354,11 @@
     errorMessage = '';
     await tick();
     document.getElementById('new-item-name')?.focus();
+  }
+
+  function closeAddForm(): void {
+    addFormOpen = false;
+    clearAddPriceNudge();
   }
 
   async function clearThisDeviceData(): Promise<void> {
@@ -487,6 +500,45 @@
     addGroupIds = [...new Set(nextGroupIds)].filter((id) =>
       liveGroupIds.has(id),
     );
+    scheduleAddPriceNudge(remembered?.id ?? null);
+  }
+
+  /**
+   * The add form's nudge is advisory and cheap to be wrong about: it asks the
+   * same `/prices` read the item sheet uses, after a short pause so typing a
+   * name is one request rather than one per keystroke, and any failure simply
+   * leaves the form without a sentence.
+   */
+  function clearAddPriceNudge(): void {
+    addPriceNudgeRequest += 1;
+    if (addPriceNudgeTimer !== null) {
+      clearTimeout(addPriceNudgeTimer);
+      addPriceNudgeTimer = null;
+    }
+    addPriceNudge = null;
+  }
+
+  function scheduleAddPriceNudge(itemId: string | null): void {
+    clearAddPriceNudge();
+    if (!itemId) return;
+    const request = addPriceNudgeRequest;
+    addPriceNudgeTimer = setTimeout(() => {
+      addPriceNudgeTimer = null;
+      void loadAddPriceNudge(itemId, request);
+    }, 300);
+  }
+
+  async function loadAddPriceNudge(
+    itemId: string,
+    request: number,
+  ): Promise<void> {
+    try {
+      const prices = await fetchItemPrices(itemId);
+      if (request !== addPriceNudgeRequest) return;
+      addPriceNudge = pricesNudge(prices, new Date());
+    } catch {
+      // An unavailable price read is not an error the add form should show.
+    }
   }
 
   function toggleGroup(ids: string[], groupId: string): string[] {
@@ -529,6 +581,7 @@
       addGroupContextId = null;
       addDetailsOpen = false;
       addFormOpen = false;
+      clearAddPriceNudge();
     }
   }
 
@@ -763,6 +816,16 @@
   }
 
   /**
+   * A price row's receipt link: show the Receipts tab with that committed
+   * receipt already open. The id is handed over once and cleared when the tab
+   * has opened it, so returning to Receipts later starts on the list.
+   */
+  function openReceiptFromPrices(receiptId: string): void {
+    receiptToOpen = receiptId;
+    void openScreen('receipts');
+  }
+
+  /**
    * An item rename or merge changed snapshot-visible rows (items and their list
    * entries). The item screen reloads its own counts; the page owns the shared
    * snapshot, so it requires the write's revision and refreshes it.
@@ -922,7 +985,7 @@
           type="button"
           aria-label="Open add item form"
           aria-expanded={addFormOpen}
-          onclick={() => (addFormOpen ? (addFormOpen = false) : openAddForm())}
+          onclick={() => (addFormOpen ? closeAddForm() : openAddForm())}
           disabled={!canWrite}
         >
           <span aria-hidden="true">+</span>
@@ -1142,14 +1205,14 @@
             >
               {pendingAction === 'add' ? 'Adding…' : 'Add item'}
             </button>
-            <button
-              class="quiet-button"
-              type="button"
-              onclick={() => (addFormOpen = false)}
-            >
+            <button class="quiet-button" type="button" onclick={closeAddForm}>
               Close
             </button>
           </div>
+
+          {#if addPriceNudge}
+            <p class="add-price-nudge" role="status">{addPriceNudge}</p>
+          {/if}
 
           <details class="item-details" bind:open={addDetailsOpen}>
             <summary>Quantity, note, and groups</summary>
@@ -1748,12 +1811,15 @@
       writable={canWrite}
       serverInstanceId={snapshot.serverInstanceId}
       onChanged={handleItemChanged}
+      onOpenReceipt={openReceiptFromPrices}
     />
   {:else if screen === 'receipts'}
     <ReceiptsTab
       writable={canWrite}
       catalogItems={snapshot.catalogItems}
       groups={snapshot.groups}
+      {receiptToOpen}
+      onReceiptOpened={() => (receiptToOpen = null)}
     />
   {:else}
     <section class="secondary-screen" aria-labelledby="history-heading">
@@ -2383,6 +2449,12 @@
   .add-name-row input {
     min-height: 3.1rem;
     font-size: 1.05rem;
+  }
+
+  .add-price-nudge {
+    margin: 0.5rem 0 0;
+    color: var(--text-muted);
+    font-size: 0.85rem;
   }
 
   .primary-button,

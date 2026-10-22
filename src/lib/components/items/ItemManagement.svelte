@@ -39,6 +39,7 @@
     onMergeConfirm,
     onMergeCancel,
     onReportDismiss,
+    onPrices,
   }: {
     items: readonly ItemSummary[];
     writable?: boolean;
@@ -61,6 +62,8 @@
     onMergeConfirm: () => void;
     onMergeCancel: () => void;
     onReportDismiss: () => void;
+    /** Open the item's committed-price sheet; a read, so never write-gated. */
+    onPrices: (item: ItemSummary) => void;
   } = $props();
 
   const absorbed = $derived(
@@ -143,8 +146,16 @@
               <h3>{item.name}</h3>
               <p class="item-counts">{itemCountSummary(item.counts)}</p>
             </div>
-            {#if writable}
-              <div class="item-actions">
+            <div class="item-actions">
+              <button
+                type="button"
+                class="quiet-button"
+                aria-label={`Prices for ${item.name}`}
+                onclick={() => onPrices(item)}
+              >
+                Prices
+              </button>
+              {#if writable}
                 <button
                   type="button"
                   class="quiet-button"
@@ -163,8 +174,8 @@
                 >
                   Merge into…
                 </button>
-              </div>
-            {/if}
+              {/if}
+            </div>
           </div>
 
           {#if renameDraft?.itemId === item.id}
@@ -348,6 +359,8 @@
   .item-actions {
     display: flex;
     flex: none;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 0.4rem;
   }
 

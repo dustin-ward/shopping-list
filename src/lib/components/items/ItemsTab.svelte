@@ -10,16 +10,30 @@
     type RenameDraft,
   } from '../../client/item-management';
   import ItemManagement from './ItemManagement.svelte';
-  import type { ItemSummary, MergeItemsResult } from '../../shared/schemas';
+  import ItemPrices from './ItemPrices.svelte';
+  import {
+    fetchItemPrices,
+    pricesErrorMessage,
+  } from '../../client/item-prices';
+  import type {
+    ItemPrices as ItemPriceHistory,
+    ItemSummary,
+    MergeItemsResult,
+  } from '../../shared/schemas';
 
   // The item-management container: it owns the read, the two drafts and their
   // requests, while the presenter stays a renderer. Both writes are
   // snapshot-visible, so every success hands the new revision to the page,
   // which requires it and refreshes the shared snapshot.
+  //
+  // It also owns the Prices sheet's read (ticket 21): the item detail hangs off
+  // this screen because a canonical item is the identity price history attaches
+  // to. Price history is fetched on demand, never snapshot data.
   let {
     writable = false,
     serverInstanceId = '',
     onChanged = () => {},
+    onOpenReceipt,
   }: {
     writable?: boolean;
     serverInstanceId?: string;
@@ -27,6 +41,8 @@
       serverInstanceId: string;
       revision: number;
     }) => void | Promise<void>;
+    /** Hand a committed receipt to the page so it can open it. */
+    onOpenReceipt: (receiptId: string) => void;
   } = $props();
 
   let items = $state<ItemSummary[]>([]);
@@ -39,6 +55,12 @@
   let renameDraft = $state<RenameDraft | null>(null);
   let mergeDraft = $state<MergeDraft | null>(null);
   let report = $state<MergeItemsResult | null>(null);
+  let pricesItem = $state<ItemSummary | null>(null);
+  let prices = $state<ItemPriceHistory | null>(null);
+  let pricesLoading = $state(false);
+  let pricesError = $state('');
+  /** Only the latest price read may write, even when it re-reads one item. */
+  let pricesRequest = 0;
 
   onMount(() => {
     void loadItems();
@@ -160,6 +182,41 @@
     await onChanged(result);
     await loadItems();
   }
+
+  async function openPrices(item: ItemSummary): Promise<void> {
+    const request = ++pricesRequest;
+    pricesItem = item;
+    prices = null;
+    pricesLoading = true;
+    pricesError = '';
+    try {
+      const body = await fetchItemPrices(item.id);
+      if (request !== pricesRequest) return;
+      prices = body;
+    } catch (failure) {
+      if (request !== pricesRequest) return;
+      pricesError = pricesErrorMessage(failure);
+    } finally {
+      if (request === pricesRequest) pricesLoading = false;
+    }
+  }
+
+  function retryPrices(): void {
+    if (pricesItem) void openPrices(pricesItem);
+  }
+
+  function closePrices(): void {
+    pricesRequest += 1;
+    pricesItem = null;
+    prices = null;
+    pricesLoading = false;
+    pricesError = '';
+  }
+
+  function openReceipt(receiptId: string): void {
+    closePrices();
+    onOpenReceipt(receiptId);
+  }
 </script>
 
 <section class="secondary-screen items-screen" aria-labelledby="items-heading">
@@ -198,6 +255,19 @@
       onMergeConfirm={() => void confirmMerge()}
       onMergeCancel={cancelMerge}
       onReportDismiss={dismissReport}
+      onPrices={(item) => void openPrices(item)}
+    />
+  {/if}
+
+  {#if pricesItem}
+    <ItemPrices
+      item={{ id: pricesItem.id, name: pricesItem.name }}
+      {prices}
+      loading={pricesLoading}
+      error={pricesError}
+      onClose={closePrices}
+      onOpenReceipt={openReceipt}
+      onRetry={retryPrices}
     />
   {/if}
 </section>
