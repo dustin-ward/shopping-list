@@ -546,6 +546,94 @@ export const matchingStatsSchema = z.object({
 });
 
 /**
+ * The measurement families price history compares within (ticket 20; plan §8
+ * "Prices API"). Normalization never crosses one: a pound has no meaning in the
+ * count family and no density is assumed between mass and volume.
+ */
+export const priceFamilySchema = z.enum(['mass', 'volume', 'count']);
+export const PRICE_FAMILY_VALUES = priceFamilySchema.options;
+
+/** The one comparison unit each family normalizes to: per kg, per litre, per each. */
+export const priceBaseUnitSchema = z.enum(['kg', 'l', 'ea']);
+
+/**
+ * "Simple trend" is the direction between the two most recent comparable points
+ * in one family; `unknown` when the family has fewer than two.
+ */
+export const priceTrendSchema = z.enum(['up', 'down', 'flat', 'unknown']);
+
+/**
+ * One committed line's normalized contribution to the price history. The amount
+ * actually paid (`totalPriceMinor`) is kept beside the normalized per-unit price
+ * because spend and per-unit comparisons answer different questions: a line
+ * whose unit cannot be normalized still contributes to what was spent.
+ */
+export const itemPricePointSchema = z.object({
+  receiptId: uuidSchema,
+  lineId: uuidSchema,
+  /** The receipt's `created_at` — the authoritative record time. */
+  receiptCreatedAt: z.string().trim().min(1).max(40),
+  /** The printed variant this point came from. */
+  printedText: z.string(),
+  quantityReal: z.number().nullable(),
+  quantityUnit: receiptQuantityUnitSchema,
+  totalPriceMinor: z.number().int().nullable(),
+  /** The line price per the family's base unit, not per its printed unit. */
+  normalizedUnitPriceMinor: z.number().int(),
+});
+
+/**
+ * One family's comparison series inside one store, oldest point first. Only
+ * lines that could be normalized appear here; `min`/`max`/`last` are therefore
+ * always within a single family.
+ */
+export const itemPriceFamilySchema = z.object({
+  family: priceFamilySchema,
+  unit: priceBaseUnitSchema,
+  lineCount: z.number().int().min(0),
+  lastUnitPriceMinor: z.number().int(),
+  minUnitPriceMinor: z.number().int(),
+  maxUnitPriceMinor: z.number().int(),
+  trend: priceTrendSchema,
+  history: z.array(itemPricePointSchema),
+});
+
+/**
+ * One store group's price history for an item. `spendMinor` and `lineCount`
+ * cover every committed line at the store; `families` covers only the lines
+ * whose units could be compared. `lastPaid*` names the most recent line's
+ * amount (not a unit price) and its source receipt — a store row is always
+ * derived from at least one line.
+ */
+export const itemStorePricesSchema = z.object({
+  storeGroupId: uuidSchema,
+  storeName: z.string(),
+  lineCount: z.number().int().min(0),
+  spendMinor: z.number().int(),
+  lastPaidMinor: z.number().int().nullable(),
+  lastPaidAt: z.string().trim().min(1).max(40),
+  lastReceiptId: uuidSchema,
+  families: z.array(itemPriceFamilySchema),
+});
+
+/**
+ * `GET /api/items/[catalogItemId]/prices`: price history derived from committed
+ * receipt lines of this item, per store group (ticket 20). Stores are newest
+ * receipt first; an item with no committed history answers an empty `stores`
+ * list rather than an error. Currency is the configured receipt currency —
+ * multi-currency is out of scope (spec §9).
+ */
+export const itemPricesSchema = z.object({
+  catalogItemId: uuidSchema,
+  itemName: z.string(),
+  currency: z.string().trim().length(3),
+  receiptCount: z.number().int().min(0),
+  lineCount: z.number().int().min(0),
+  spendMinor: z.number().int(),
+  stores: z.array(itemStorePricesSchema),
+});
+
+/**
  * One line's review edits. Every field is optional: the editor sends what the
  * reviewer touched and nothing else, so two edits of the same line never fight
  * over fields neither of them changed.
@@ -731,6 +819,13 @@ export type UnknownLinesBindResult = z.infer<
   typeof unknownLinesBindResultSchema
 >;
 export type MatchingStats = z.infer<typeof matchingStatsSchema>;
+export type PriceFamily = z.infer<typeof priceFamilySchema>;
+export type PriceBaseUnit = z.infer<typeof priceBaseUnitSchema>;
+export type PriceTrend = z.infer<typeof priceTrendSchema>;
+export type ItemPricePoint = z.infer<typeof itemPricePointSchema>;
+export type ItemPriceFamily = z.infer<typeof itemPriceFamilySchema>;
+export type ItemStorePrices = z.infer<typeof itemStorePricesSchema>;
+export type ItemPrices = z.infer<typeof itemPricesSchema>;
 export type ItemReferenceCounts = z.infer<typeof itemReferenceCountsSchema>;
 export type ItemSummary = z.infer<typeof itemSummarySchema>;
 export type ItemOverview = z.infer<typeof itemOverviewSchema>;
