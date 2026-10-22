@@ -70,7 +70,13 @@ export type ReceiptWorkerOutcome =
  */
 export function engineForConfig(config: RuntimeConfig): OcrEngine | undefined {
   if (!config.receiptOcrUrl) return undefined;
-  if (config.receiptOcrMode === 'stub') return createStubOcrEngine();
+  if (config.receiptOcrMode === 'stub') {
+    return createStubOcrEngine(
+      config.receiptOcrStubFixture
+        ? { fixturePath: config.receiptOcrStubFixture }
+        : {},
+    );
+  }
   return createHttpOcrEngine({
     url: config.receiptOcrUrl,
     token: config.receiptOcrToken,

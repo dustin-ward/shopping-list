@@ -48,12 +48,15 @@
   // item search and store picker read the list the snapshot already carries.
   let {
     writable = false,
+    helperEnabled = false,
     catalogItems = [],
     groups = [],
     receiptToOpen = null,
     onReceiptOpened = () => {},
   }: {
     writable?: boolean;
+    /** `RECEIPT_HELPER_URL` configured: the review editor may offer a re-parse. */
+    helperEnabled?: boolean;
     catalogItems?: readonly CatalogItemOption[];
     groups?: readonly GroupOption[];
     /** A committed receipt the Prices sheet asked to open, once. */
@@ -662,6 +665,7 @@
         <ReceiptReviewEditor
           {detail}
           {writable}
+          {helperEnabled}
           {catalogItems}
           {groups}
           onSaved={handleDetailSaved}

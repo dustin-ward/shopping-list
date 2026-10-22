@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
 import { AppError } from '../errors';
+import { describeFetchFailure } from './fetch-failure';
 
 /**
  * The OCR seam the worker drives. Two adapters share it: the real sidecar over
@@ -171,14 +172,4 @@ function parseOcrPayload(raw: string): string {
  */
 function toFetchBody(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
   return new Uint8Array(bytes);
-}
-
-function describeFetchFailure(error: unknown): string {
-  if (error instanceof Error && error.name === 'TimeoutError') {
-    return 'the request timed out';
-  }
-  if (error instanceof Error && error.cause instanceof Error) {
-    return error.cause.message;
-  }
-  return error instanceof Error ? error.message : String(error);
 }

@@ -95,6 +95,7 @@ function detail(overrides: Partial<ReceiptDetail> = {}): ReceiptDetail {
     parseVersion: 1,
     attempts: 1,
     ocrWarnings: null,
+    parseQuality: null,
     updatedAt: '2026-10-17T12:05:00.000Z',
     committedAt: '2026-10-17T12:05:00.000Z',
     currency: 'USD',

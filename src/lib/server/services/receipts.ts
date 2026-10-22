@@ -13,11 +13,13 @@ import {
   type ReceiptListPage,
   type ReceiptStatus,
   type RepairReceiptInput,
+  type ReparseReceiptInput,
   type UpdateReceiptInput,
 } from '../../shared/schemas';
 import { getConfig } from '../config.js';
 import { getRawDatabase } from '../db/connection';
 import { AppError, badRequest, conflict, notFound } from '../errors';
+import { HELPER_REPARSE_WARNING } from '../../shared/receipt-helper';
 import {
   planReceiptCommit,
   type AliasLearning,
@@ -29,11 +31,17 @@ import {
 } from '../receipts/commit-plan';
 import { detectImageFormat } from '../receipts/image-format';
 import {
+  helperEngineForConfig,
+  toParsedReceipt,
+  type HelperEngine,
+} from '../receipts/helper-engine';
+import {
   readMultipartFilePart,
   type MultipartFilePart,
 } from '../receipts/multipart.js';
 import { imageContentType } from '../receipts/ocr-engine';
 import { ocrTextFromJson } from '../receipts/ocr-text';
+import { assessParseQuality } from '../receipts/parse-quality';
 import { suggestionsForLines } from '../receipts/matcher';
 import type { ParsedReceipt } from '../receipts/parser';
 import { planLineRepair, type LineAlias } from '../receipts/repair-plan';
@@ -170,13 +178,15 @@ export function writeReceiptParse(
   database: SqliteDatabase,
   receiptId: string,
   parsed: ParsedReceipt,
-  currency: string,
+  /** `null` keeps the receipt's stored currency (a re-parse changes only lines). */
+  currency: string | null,
 ): void {
   const now = timestampNow();
   database
     .prepare(
       `UPDATE receipts
-          SET subtotal_minor = ?, tax_minor = ?, total_minor = ?, currency = ?,
+          SET subtotal_minor = ?, tax_minor = ?, total_minor = ?,
+              currency = COALESCE(?, currency),
               parse_version = ?, ocr_warnings = ?
         WHERE id = ?`,
     )
@@ -383,6 +393,7 @@ export function getReceiptDetail(
     lines.map(mapLine),
     loadMatchContext(database, listId, row.store_group_id),
   );
+  const warnings = readOcrWarnings(row.ocr_warnings);
 
   return {
     ...mapListItem(row),
@@ -395,11 +406,36 @@ export function getReceiptDetail(
     attempts: row.attempts,
     ocrWarnings: row.ocr_warnings,
     ocrText: ocrTextFromJson(row.ocr_json),
+    parseQuality:
+      warnings === null
+        ? null
+        : assessParseQuality({
+            lines: lines.map((line) => ({
+              isItemChunk: Boolean(line.is_item_chunk),
+              confidence: line.confidence,
+            })),
+            subtotalMinor: row.subtotal_minor,
+            totalMinor: row.total_minor,
+            warnings,
+          }),
     lines: lines.map((line) => ({
       ...mapLine(line),
       suggestions: suggestions.get(line.id) ?? [],
     })),
   };
+}
+
+/** The stored warning list; `null` is the never-parsed receipt, not an error. */
+function readOcrWarnings(raw: string | null): string[] | null {
+  if (raw === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === 'string')
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 export type ReceiptImage = { bytes: Uint8Array; contentType: string };
@@ -549,6 +585,107 @@ export function updateReceipt(
 
     return getReceiptDetail(receiptId, database);
   });
+}
+
+/**
+ * Ask the optional fallback helper for a second reading of the receipt's
+ * immutable OCR evidence, then replace the parsed lines with what it returns.
+ *
+ * This is the R4 escape hatch for a receipt the deterministic parser could not
+ * read (plan §6). The photo, `ocr_json`, the store and the review lifecycle are
+ * untouched: only the derived lines, totals and warnings are rebuilt, which is
+ * the same writer the worker uses, so a re-parse can never duplicate lines. The
+ * replacement discards any line edits made since, which is why the request
+ * carries the `updatedAt` the reviewer last saw and is re-checked after the
+ * (slow) helper call.
+ */
+export async function reparseReceiptWithHelper(
+  receiptId: string,
+  input: ReparseReceiptInput,
+  options: { database?: SqliteDatabase; engine?: HelperEngine } = {},
+): Promise<ReceiptDetail> {
+  const database = options.database ?? getRawDatabase();
+  const config = getConfig();
+  const engine = options.engine ?? helperEngineForConfig(config);
+  if (!engine) {
+    throw new AppError(
+      503,
+      'HELPER_DISABLED',
+      'The fallback helper is not configured. Configure RECEIPT_HELPER_URL, or correct the lines by hand.',
+    );
+  }
+
+  const listId = currentListId(database);
+  const row = database
+    .prepare(
+      `SELECT id, status, updated_at, ocr_json FROM receipts
+        WHERE id = ? AND list_id = ?`,
+    )
+    .get(receiptId, listId) as
+    | {
+        id: string;
+        status: ReceiptStatus;
+        updated_at: string;
+        ocr_json: string | null;
+      }
+    | undefined;
+  if (!row) throw notFound('Receipt not found.');
+  assertReparseable(receiptId, row, input.expectedUpdatedAt);
+  if (!row.ocr_json) {
+    throw conflict(
+      'RECEIPT_NOT_PARSED',
+      'This receipt has no OCR payload to re-read.',
+    );
+  }
+
+  const parsed = toParsedReceipt(
+    await engine.reParse({
+      receiptId,
+      ocrJson: row.ocr_json,
+      ocrText: ocrTextFromJson(row.ocr_json) ?? '',
+    }),
+  );
+  // The provenance is part of the receipt's warning trail: a reviewer opening
+  // it later can see the lines came from the helper, not the first parser.
+  parsed.warnings = [HELPER_REPARSE_WARNING, ...parsed.warnings];
+
+  return runWriteTransaction(database, () => {
+    const current = database
+      .prepare(
+        'SELECT status, updated_at FROM receipts WHERE id = ? AND list_id = ?',
+      )
+      .get(receiptId, listId) as
+      { status: ReceiptStatus; updated_at: string } | undefined;
+    if (!current) throw notFound('Receipt not found.');
+    assertReparseable(receiptId, current, input.expectedUpdatedAt);
+
+    const now = timestampNow();
+    // `null` currency keeps the receipt's own: a re-parse replaces the derived
+    // lines, not the household's configured or corrected currency.
+    writeReceiptParse(database, receiptId, parsed, null);
+    database
+      .prepare(
+        'UPDATE receipts SET updated_at = ? WHERE id = ? AND list_id = ?',
+      )
+      .run(now, receiptId, listId);
+    return getReceiptDetail(receiptId, database);
+  });
+}
+
+/** The guard the pre-check and the in-transaction re-check both run. */
+function assertReparseable(
+  receiptId: string,
+  row: { status: ReceiptStatus; updated_at: string },
+  expectedUpdatedAt: string,
+): void {
+  if (row.status !== 'review') {
+    throw conflict(
+      'RECEIPT_NOT_REPARSEABLE',
+      `Only a receipt in review can be re-parsed; this one is ${row.status}.`,
+      { status: row.status },
+    );
+  }
+  assertReceiptUpdatedAt(receiptId, row.updated_at, expectedUpdatedAt);
 }
 
 /** The receipt-level corrections, or `false` when the patch carried none. */
@@ -1130,6 +1267,7 @@ export function getReceiptCapabilities(
 ): ReceiptCapabilities {
   return {
     enabled: Boolean(config.receiptOcrUrl),
+    helperEnabled: Boolean(config.receiptHelperUrl),
     currency: config.receiptCurrency,
   };
 }

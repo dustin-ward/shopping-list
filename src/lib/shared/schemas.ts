@@ -297,6 +297,19 @@ export const receiptDetailLineSchema = receiptLineSchema.extend({
   suggestions: z.array(receiptSuggestionSchema),
 });
 
+/**
+ * Why a parse is worth a second reading, or `lowConfidence: false` when it is
+ * not. Derived from the stored lines and warnings on every read — it is a
+ * function of the parse, not another column. `helperApplied` stops the review
+ * screen from offering the same helper again on its own output.
+ */
+export const receiptParseQualitySchema = z.object({
+  lowConfidence: z.boolean(),
+  helperApplied: z.boolean(),
+  /** Short, reviewer-facing fragments ("no price column was found"). */
+  reasons: z.array(z.string()),
+});
+
 export const receiptDetailSchema = receiptListItemSchema.extend({
   updatedAt: z.string(),
   processedAt: z.string().nullable(),
@@ -308,11 +321,15 @@ export const receiptDetailSchema = receiptListItemSchema.extend({
   ocrWarnings: z.string().nullable(),
   /** Raw OCR line text joined with newlines; null until the receipt is processed. */
   ocrText: z.string().nullable(),
+  /** Null until the receipt has been parsed at least once. */
+  parseQuality: receiptParseQualitySchema.nullable(),
   lines: z.array(receiptDetailLineSchema),
 });
 
 export const receiptCapabilitiesSchema = z.object({
   enabled: z.boolean(),
+  /** `RECEIPT_HELPER_URL` set: the re-parse affordance can be offered. */
+  helperEnabled: z.boolean(),
   currency: z.string(),
 });
 
@@ -689,6 +706,18 @@ export const updateReceiptSchema = z
   .strict();
 
 /**
+ * `POST /api/receipts/[id]/reparse`: hand the receipt's immutable OCR evidence
+ * to the fallback helper and replace the parsed lines. Guarded by the
+ * `updatedAt` the reviewer last saw, like every other review write, because the
+ * replacement discards any lines edits made since.
+ */
+export const reparseReceiptSchema = z
+  .object({
+    expectedUpdatedAt: z.string().trim().min(1).max(40),
+  })
+  .strict();
+
+/**
  * `POST /api/receipts/[id]/commit`: the reviewer's commit, guarded by the
  * receipt's `updated_at` like every other review write.
  *
@@ -806,6 +835,7 @@ export type ReceiptLine = z.infer<typeof receiptLineSchema>;
 export type ReceiptSuggestion = z.infer<typeof receiptSuggestionSchema>;
 export type ReceiptDetailLine = z.infer<typeof receiptDetailLineSchema>;
 export type ReceiptDetail = z.infer<typeof receiptDetailSchema>;
+export type ReceiptParseQuality = z.infer<typeof receiptParseQualitySchema>;
 export type ReceiptCapabilities = z.infer<typeof receiptCapabilitiesSchema>;
 export type AliasSource = z.infer<typeof aliasSourceSchema>;
 export type ItemAlias = z.infer<typeof itemAliasSchema>;
@@ -835,6 +865,7 @@ export type MergeItemsInput = z.infer<typeof mergeItemsSchema>;
 export type MergeItemsResult = z.infer<typeof mergeItemsResultSchema>;
 export type ReceiptLineEdit = z.infer<typeof receiptLineEditSchema>;
 export type UpdateReceiptInput = z.infer<typeof updateReceiptSchema>;
+export type ReparseReceiptInput = z.infer<typeof reparseReceiptSchema>;
 export type CommitReceiptInput = z.infer<typeof commitReceiptSchema>;
 export type ReceiptRepairState = z.infer<typeof receiptRepairStateSchema>;
 export type ReceiptRepairLineEdit = z.infer<typeof receiptRepairLineSchema>;

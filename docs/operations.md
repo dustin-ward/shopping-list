@@ -114,26 +114,31 @@ health check verifies the ready endpoint. Run only one replica.
 
 ## Configuration
 
-| Setting                   | Purpose                                                                                                         |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_PATH`           | SQLite file; Compose uses `/data/shopping-list.sqlite`                                                          |
-| `CANONICAL_ORIGIN`        | Exact browser-facing origin, normally the HTTPS Serve hostname                                                  |
-| `PORT`                    | Internal Node/adapter-node port; Compose uses `3000`                                                            |
-| `SHUTDOWN_TIMEOUT`        | Maximum adapter-node drain interval in seconds; Compose uses `20`                                               |
-| `LOG_LEVEL`               | Reserved application log level (`info` by default)                                                              |
-| `PUBLISHED_PORT`          | Host loopback port forwarded to container port 3000                                                             |
-| `BACKUP_DIR`              | Backup output directory; Compose mounts `/backups`                                                              |
-| `SHOPPING_LIST_IMAGE`     | Optional image reference; unset builds local `shopping-list:local`                                              |
-| `RECEIPT_OCR_IMAGE`       | Published OCR sidecar image; unset uses `…/shopping-list-receipt-ocr:latest`, only started by the `ocr` profile |
-| `RECEIPT_CURRENCY`        | ISO 4217 code used for receipt money (`USD` by default); invalid codes fail startup                             |
-| `RECEIPT_OCR_URL`         | OCR sidecar endpoint (`http`/`https`); unset by default, which disables capture and the worker                  |
-| `RECEIPT_OCR_MODE`        | `http` (default) or `stub`, which returns a canned fixture without calling the sidecar                          |
-| `RECEIPT_OCR_TIMEOUT_MS`  | Per-request OCR timeout in milliseconds (`30000` by default)                                                    |
-| `RECEIPT_OCR_TOKEN`       | Optional bearer token sent to the OCR engine when it is not loopback-only                                       |
-| `INDRA_OCR_THREADS`       | Optional OCR sidecar ONNX Runtime inference threads (`4` by default)                                            |
-| `RECEIPT_STORAGE_DIR`     | Retained receipt images under the `/data` volume (`/data/receipts` by default)                                  |
-| `RECEIPT_IMAGE_RETENTION` | `keep` (capture-first default), `until_commit`, or `immediate`; see "Receipt image retention" below             |
-| `BODY_SIZE_LIMIT`         | adapter-node request body cap; set `12M` at deploy, since the upload route still caps images at 10 MB           |
+| Setting                     | Purpose                                                                                                         |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_PATH`             | SQLite file; Compose uses `/data/shopping-list.sqlite`                                                          |
+| `CANONICAL_ORIGIN`          | Exact browser-facing origin, normally the HTTPS Serve hostname                                                  |
+| `PORT`                      | Internal Node/adapter-node port; Compose uses `3000`                                                            |
+| `SHUTDOWN_TIMEOUT`          | Maximum adapter-node drain interval in seconds; Compose uses `20`                                               |
+| `LOG_LEVEL`                 | Reserved application log level (`info` by default)                                                              |
+| `PUBLISHED_PORT`            | Host loopback port forwarded to container port 3000                                                             |
+| `BACKUP_DIR`                | Backup output directory; Compose mounts `/backups`                                                              |
+| `SHOPPING_LIST_IMAGE`       | Optional image reference; unset builds local `shopping-list:local`                                              |
+| `RECEIPT_OCR_IMAGE`         | Published OCR sidecar image; unset uses `…/shopping-list-receipt-ocr:latest`, only started by the `ocr` profile |
+| `RECEIPT_CURRENCY`          | ISO 4217 code used for receipt money (`USD` by default); invalid codes fail startup                             |
+| `RECEIPT_OCR_URL`           | OCR sidecar endpoint (`http`/`https`); unset by default, which disables capture and the worker                  |
+| `RECEIPT_OCR_MODE`          | `http` (default) or `stub`, which returns a canned fixture without calling the sidecar                          |
+| `RECEIPT_OCR_STUB_FIXTURE`  | Dev/test only: path to the OCR payload `stub` mode replays instead of the committed fixture                     |
+| `RECEIPT_OCR_TIMEOUT_MS`    | Per-request OCR timeout in milliseconds (`30000` by default)                                                    |
+| `RECEIPT_OCR_TOKEN`         | Optional bearer token sent to the OCR engine when it is not loopback-only                                       |
+| `RECEIPT_HELPER_URL`        | Optional R4 fallback re-parse endpoint; unset by default, which hides the re-parse offer                        |
+| `RECEIPT_HELPER_MODE`       | `http` (default) or `stub`, which replays a committed helper fixture without calling anyone                     |
+| `RECEIPT_HELPER_TIMEOUT_MS` | Per-request helper timeout in milliseconds (`60000` by default)                                                 |
+| `RECEIPT_HELPER_TOKEN`      | Optional bearer token sent to the fallback helper                                                               |
+| `INDRA_OCR_THREADS`         | Optional OCR sidecar ONNX Runtime inference threads (`4` by default)                                            |
+| `RECEIPT_STORAGE_DIR`       | Retained receipt images under the `/data` volume (`/data/receipts` by default)                                  |
+| `RECEIPT_IMAGE_RETENTION`   | `keep` (capture-first default), `until_commit`, or `immediate`; see "Receipt image retention" below             |
+| `BODY_SIZE_LIMIT`           | adapter-node request body cap; set `12M` at deploy, since the upload route still caps images at 10 MB           |
 
 The receipt settings are all optional: with `RECEIPT_OCR_URL` unset the app
 boots and runs exactly as before, and already-collected receipts stay readable.
@@ -209,6 +214,18 @@ value out of version control. `RECEIPT_OCR_TIMEOUT_MS` (30 s by default) bounds
 each attempt; a down or slow sidecar retries up to three times and then marks the
 receipt `failed` with a visible error, while the app stays healthy. See
 `ocr-sidecar/README.md` for the full contract and image invariants.
+
+### Fallback re-parse helper (optional)
+
+When `RECEIPT_HELPER_URL` is set, a receipt the first parser found structurally
+weak — no price column, no footer totals, or low item-line confidence — offers
+"Re-parse with helper" in review. The app POSTs the stored OCR evidence to that
+endpoint and replaces only the parsed lines, totals and warnings; the photo and
+`ocr_json` are untouched, and the request is refused if the receipt changed since
+the view loaded. The tier is off by default and no engine ships with the app:
+see `docs/adr/0004-fallback-reparse-tier.md` for the decision and the
+re-evaluation protocol, and `docs/degraded-receipts.md` for capture guidance.
+`RECEIPT_HELPER_MODE=stub` replays a committed fixture and is for dev/test only.
 
 ### Receipt image retention
 

@@ -32,7 +32,8 @@ const receiptCurrencySchema = z
   })
   .default('USD');
 
-const receiptOcrUrlSchema = z
+/** An optional HTTP(S) endpoint, used by both engine settings. */
+const optionalHttpUrlSchema = z
   .string()
   .trim()
   .url()
@@ -41,7 +42,8 @@ const receiptOcrUrlSchema = z
   })
   .optional();
 
-const receiptOcrTokenSchema = z.string().trim().min(1).optional();
+/** An optional bearer token sent to either engine. */
+const optionalBearerTokenSchema = z.string().trim().min(1).optional();
 
 const runtimeConfigSchema = z.object({
   DATABASE_PATH: z.string().trim().min(1).default('/data/shopping-list.sqlite'),
@@ -51,10 +53,16 @@ const runtimeConfigSchema = z.object({
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace'])
     .default('info'),
   RECEIPT_CURRENCY: receiptCurrencySchema,
-  RECEIPT_OCR_URL: receiptOcrUrlSchema,
+  RECEIPT_OCR_URL: optionalHttpUrlSchema,
   RECEIPT_OCR_MODE: z.enum(['http', 'stub']).default('http'),
   RECEIPT_OCR_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
-  RECEIPT_OCR_TOKEN: receiptOcrTokenSchema,
+  RECEIPT_OCR_TOKEN: optionalBearerTokenSchema,
+  /** Dev/test only: the fixture stub OCR replays instead of the committed one. */
+  RECEIPT_OCR_STUB_FIXTURE: z.string().trim().min(1).optional(),
+  RECEIPT_HELPER_URL: optionalHttpUrlSchema,
+  RECEIPT_HELPER_MODE: z.enum(['http', 'stub']).default('http'),
+  RECEIPT_HELPER_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
+  RECEIPT_HELPER_TOKEN: optionalBearerTokenSchema,
   RECEIPT_STORAGE_DIR: z.string().trim().min(1).default('/data/receipts'),
   RECEIPT_IMAGE_RETENTION: z
     .enum(['keep', 'until_commit', 'immediate'])
@@ -72,6 +80,11 @@ const runtimeConfigSchema = z.object({
  * @property {'http' | 'stub'} receiptOcrMode
  * @property {number} receiptOcrTimeoutMs
  * @property {string | undefined} receiptOcrToken
+ * @property {string | undefined} receiptOcrStubFixture dev/test stub payload path override
+ * @property {string | undefined} receiptHelperUrl fallback re-parse endpoint; unset disables the tier
+ * @property {'http' | 'stub'} receiptHelperMode
+ * @property {number} receiptHelperTimeoutMs
+ * @property {string | undefined} receiptHelperToken
  * @property {string} receiptStorageDir
  * @property {'keep' | 'until_commit' | 'immediate'} receiptImageRetention
  */
@@ -118,6 +131,11 @@ export function readConfig(env = process.env) {
     receiptOcrMode: parsed.data.RECEIPT_OCR_MODE,
     receiptOcrTimeoutMs: parsed.data.RECEIPT_OCR_TIMEOUT_MS,
     receiptOcrToken: parsed.data.RECEIPT_OCR_TOKEN,
+    receiptOcrStubFixture: parsed.data.RECEIPT_OCR_STUB_FIXTURE,
+    receiptHelperUrl: parsed.data.RECEIPT_HELPER_URL,
+    receiptHelperMode: parsed.data.RECEIPT_HELPER_MODE,
+    receiptHelperTimeoutMs: parsed.data.RECEIPT_HELPER_TIMEOUT_MS,
+    receiptHelperToken: parsed.data.RECEIPT_HELPER_TOKEN,
     receiptStorageDir: parsed.data.RECEIPT_STORAGE_DIR,
     receiptImageRetention: parsed.data.RECEIPT_IMAGE_RETENTION,
   };

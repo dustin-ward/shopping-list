@@ -36,6 +36,7 @@ afterEach(() => {
   database.close();
   rmSync(directory, { recursive: true, force: true });
   delete process.env.RECEIPT_OCR_URL;
+  delete process.env.RECEIPT_HELPER_URL;
   delete process.env.RECEIPT_CURRENCY;
 });
 
@@ -369,6 +370,7 @@ describe('receipt capabilities', () => {
 
     expect(getReceiptCapabilities()).toEqual({
       enabled: false,
+      helperEnabled: false,
       currency: 'EUR',
     });
   });
@@ -377,6 +379,16 @@ describe('receipt capabilities', () => {
     process.env.RECEIPT_OCR_URL = 'http://receipt-ocr:8060/ocr';
 
     expect(getReceiptCapabilities()).toMatchObject({ enabled: true });
+  });
+
+  it('reports the fallback helper separately from capture', () => {
+    process.env.RECEIPT_OCR_URL = 'http://receipt-ocr:8060/ocr';
+    process.env.RECEIPT_HELPER_URL = 'http://receipt-helper:8070/parse';
+
+    expect(getReceiptCapabilities()).toMatchObject({
+      enabled: true,
+      helperEnabled: true,
+    });
   });
 });
 

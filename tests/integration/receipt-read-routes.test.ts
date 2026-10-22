@@ -221,7 +221,11 @@ describe('GET /api/receipts/capabilities', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
-    expect(await response.json()).toEqual({ enabled: false, currency: 'USD' });
+    expect(await response.json()).toEqual({
+      enabled: false,
+      helperEnabled: false,
+      currency: 'USD',
+    });
   });
 
   it('reports the feature on when the OCR URL is configured', async () => {
@@ -230,6 +234,10 @@ describe('GET /api/receipts/capabilities', () => {
 
     const response = await capabilitiesRoute(capabilitiesEvent());
 
-    expect(await response.json()).toEqual({ enabled: true, currency: 'GBP' });
+    expect(await response.json()).toEqual({
+      enabled: true,
+      helperEnabled: false,
+      currency: 'GBP',
+    });
   });
 });

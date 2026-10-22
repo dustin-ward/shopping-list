@@ -23,6 +23,12 @@ services:
       RECEIPT_OCR_TIMEOUT_MS: ${RECEIPT_OCR_TIMEOUT_MS:-30000}
       RECEIPT_OCR_TOKEN: ${RECEIPT_OCR_TOKEN:-}
       RECEIPT_CURRENCY: ${RECEIPT_CURRENCY:-USD}
+      # Optional R4 fallback re-parse helper; a blank URL keeps the tier off and
+      # the review screen unchanged. See docs/adr/0004-fallback-reparse-tier.md.
+      RECEIPT_HELPER_URL: ${RECEIPT_HELPER_URL:-}
+      RECEIPT_HELPER_MODE: ${RECEIPT_HELPER_MODE:-http}
+      RECEIPT_HELPER_TIMEOUT_MS: ${RECEIPT_HELPER_TIMEOUT_MS:-60000}
+      RECEIPT_HELPER_TOKEN: ${RECEIPT_HELPER_TOKEN:-}
       # Captured images live inside the /data volume and are archived by
       # scripts/backup.mjs. RECEIPT_IMAGE_RETENTION defaults to keep; see
       # docs/operations.md for the retention caveat.

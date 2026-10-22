@@ -49,6 +49,9 @@
   // Receipts are a feature-flagged surface: the tab only exists while an OCR
   // engine is configured, and receipt data itself never enters the snapshot.
   let receiptsEnabled = $state(false);
+  // The fallback re-parse tier is a second, independent flag: capture can work
+  // with no helper, and the editor only offers the helper when it is set.
+  let receiptHelperEnabled = $state(false);
   let connectionState = $derived(syncState.status);
   let lastVerifiedAt = $derived(syncState.lastVerifiedAt);
   let refreshing = $derived(syncState.fetching);
@@ -185,9 +188,11 @@
     void requestJson<ReceiptCapabilities>('/api/receipts/capabilities')
       .then((capabilities) => {
         receiptsEnabled = capabilities.enabled;
+        receiptHelperEnabled = capabilities.helperEnabled;
       })
       .catch(() => {
         receiptsEnabled = false;
+        receiptHelperEnabled = false;
       });
     let registration: ServiceWorkerRegistration | null = null;
     const unsubscribe = snapshotCoordinator.subscribe((state) => {
@@ -1816,6 +1821,7 @@
   {:else if screen === 'receipts'}
     <ReceiptsTab
       writable={canWrite}
+      helperEnabled={receiptHelperEnabled}
       catalogItems={snapshot.catalogItems}
       groups={snapshot.groups}
       {receiptToOpen}

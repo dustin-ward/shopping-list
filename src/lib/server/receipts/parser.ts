@@ -47,6 +47,14 @@ const MAX_NAMED_WARNINGS = 5;
 const LOW_CONFIDENCE = 0.6;
 
 /**
+ * The warning the parser emits when no price column was detected. Exported so
+ * the fallback tier's quality check names the same condition instead of
+ * matching on a copied string.
+ */
+export const NO_PRICE_COLUMN_WARNING =
+  'no price column found; prices were read line by line';
+
+/**
  * How long both words must be for a one-edit fuzzy keyword match. Below this a
  * single edit is too vague to mean a mangled keyword (`CAT` is one edit from
  * `VAT`), and printed names are full of three-letter words.
@@ -157,7 +165,7 @@ export function parseReceiptOcr(raw: string): ParsedReceipt {
     !columnFound &&
     rows.some((row) => splitRowPrice(row, columns, false).priceMinor !== null)
   ) {
-    warnings.push('no price column found; prices were read line by line');
+    warnings.push(NO_PRICE_COLUMN_WARNING);
   }
 
   const parsed: ParsedReceiptLine[] = [];

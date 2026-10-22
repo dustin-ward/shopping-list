@@ -22,6 +22,12 @@
     saveReceiptReview,
   } from '../../client/receipt-review';
   import {
+    helperOffer,
+    reparseErrorMessage,
+    reparseReceiptInput,
+    submitReceiptReparse,
+  } from '../../client/receipt-helper';
+  import {
     repairBindPatch,
     repairErrorMessage,
     repairReceiptInput,
@@ -30,6 +36,7 @@
     submitReceiptRepair,
   } from '../../client/receipt-repair';
   import { isReceiptInFlight } from '../../client/receipt-display';
+  import ReceiptHelperReparse from './ReceiptHelperReparse.svelte';
   import ReceiptLines from './ReceiptLines.svelte';
   import ReceiptStorePicker from './ReceiptStorePicker.svelte';
   import ReceiptTotalsStrip from './ReceiptTotalsStrip.svelte';
@@ -58,6 +65,7 @@
   let {
     detail,
     writable = false,
+    helperEnabled = false,
     catalogItems = [],
     groups = [],
     onSaved,
@@ -65,6 +73,8 @@
   }: {
     detail: ReceiptDetail;
     writable?: boolean;
+    /** `RECEIPT_HELPER_URL` configured: the fallback re-parse may be offered. */
+    helperEnabled?: boolean;
     catalogItems?: readonly CatalogItemOption[];
     groups?: readonly GroupOption[];
     onSaved: (detail: ReceiptDetail) => void;
@@ -100,8 +110,17 @@
   /** Repair is an explicit mode, entered through its own two-tap confirm. */
   let repairing = $state(false);
   let confirmingRepair = $state(false);
+  /** The helper offer's confirm and its in-flight request. */
+  let confirmingReparse = $state(false);
+  let reparsing = $state(false);
   /** Every write to this receipt is refused while one is in flight. */
-  const busy = $derived(saving || committing || discarding);
+  const busy = $derived(saving || committing || discarding || reparsing);
+  /**
+   * The fallback offer (R4): only for a low-confidence parse in review, only
+   * when an engine is configured and this device can write, and never on the
+   * helper's own output.
+   */
+  const reparseOffer = $derived(helperOffer(detail, helperEnabled, writable));
   /**
    * Saves run one at a time and in order. Blurring a field, pressing a state
    * control and accepting a chip can all fire in the same moment, and the second
@@ -380,6 +399,43 @@
       // The message already says what happened; a manual refresh still works.
     }
   }
+
+  /**
+   * Ask the fallback helper for a second reading (R4). The save queue drains
+   * first, and the request carries the `updatedAt` the editor last saw: the
+   * replacement discards any line decisions, so a stale view must be refused
+   * rather than replace someone else's newer work. The item drafts belong to
+   * the old line ids and go with them; the photo and raw OCR text stay.
+   */
+  async function reparseWithHelper(): Promise<void> {
+    if (reparsing || !reparseOffer) return;
+    actionError = '';
+    confirmingReparse = false;
+    reparsing = true;
+    try {
+      await queue;
+      const updated = await submitReceiptReparse(
+        detail.id,
+        reparseReceiptInput(detail),
+      );
+      itemDrafts = {};
+      saveError = '';
+      onSaved(updated);
+    } catch (error) {
+      const message = reparseErrorMessage(error);
+      if (
+        error instanceof ApiError &&
+        (error.code === 'RECEIPT_CHANGED' ||
+          error.code === 'RECEIPT_NOT_REPARSEABLE')
+      ) {
+        await refreshAfterConflict(message);
+      } else {
+        actionError = message;
+      }
+    } finally {
+      reparsing = false;
+    }
+  }
 </script>
 
 <figure class="receipt-image">
@@ -402,6 +458,18 @@
 
 {#if actionError}
   <p class="message error-message" role="alert">{actionError}</p>
+{/if}
+
+{#if reparseOffer}
+  <ReceiptHelperReparse
+    reasons={reparseOffer.reasons}
+    confirming={confirmingReparse}
+    {busy}
+    applying={reparsing}
+    onArm={() => (confirmingReparse = true)}
+    onCancel={() => (confirmingReparse = false)}
+    onConfirm={reparseWithHelper}
+  />
 {/if}
 
 <h3 class="detail-subheading">Parsed lines</h3>

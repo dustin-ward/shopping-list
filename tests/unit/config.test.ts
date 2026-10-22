@@ -15,6 +15,11 @@ describe('runtime configuration', () => {
       receiptOcrMode: 'http',
       receiptOcrTimeoutMs: 30_000,
       receiptOcrToken: undefined,
+      receiptOcrStubFixture: undefined,
+      receiptHelperUrl: undefined,
+      receiptHelperMode: 'http',
+      receiptHelperTimeoutMs: 60_000,
+      receiptHelperToken: undefined,
       receiptStorageDir: '/data/receipts',
       receiptImageRetention: 'keep',
     });
@@ -29,6 +34,11 @@ describe('runtime configuration', () => {
         RECEIPT_OCR_MODE: 'stub',
         RECEIPT_OCR_TIMEOUT_MS: '5000',
         RECEIPT_OCR_TOKEN: 'shared-secret',
+        RECEIPT_OCR_STUB_FIXTURE: '/tmp/washed-out.json',
+        RECEIPT_HELPER_URL: 'http://receipt-helper:8070/parse',
+        RECEIPT_HELPER_MODE: 'stub',
+        RECEIPT_HELPER_TIMEOUT_MS: '90000',
+        RECEIPT_HELPER_TOKEN: 'helper-secret',
         RECEIPT_STORAGE_DIR: '/tmp/receipts',
         RECEIPT_IMAGE_RETENTION: 'until_commit',
       }),
@@ -38,6 +48,11 @@ describe('runtime configuration', () => {
       receiptOcrMode: 'stub',
       receiptOcrTimeoutMs: 5000,
       receiptOcrToken: 'shared-secret',
+      receiptOcrStubFixture: '/tmp/washed-out.json',
+      receiptHelperUrl: 'http://receipt-helper:8070/parse',
+      receiptHelperMode: 'stub',
+      receiptHelperTimeoutMs: 90_000,
+      receiptHelperToken: 'helper-secret',
       receiptStorageDir: '/tmp/receipts',
       receiptImageRetention: 'until_commit',
     });
@@ -52,6 +67,10 @@ describe('runtime configuration', () => {
         RECEIPT_OCR_MODE: '',
         RECEIPT_OCR_TIMEOUT_MS: '',
         RECEIPT_OCR_TOKEN: '',
+        RECEIPT_HELPER_URL: '  ',
+        RECEIPT_HELPER_MODE: '',
+        RECEIPT_HELPER_TIMEOUT_MS: '',
+        RECEIPT_HELPER_TOKEN: '',
         RECEIPT_STORAGE_DIR: ' ',
         RECEIPT_IMAGE_RETENTION: '',
       }),
@@ -61,6 +80,11 @@ describe('runtime configuration', () => {
       receiptOcrMode: 'http',
       receiptOcrTimeoutMs: 30_000,
       receiptOcrToken: undefined,
+      receiptOcrStubFixture: undefined,
+      receiptHelperUrl: undefined,
+      receiptHelperMode: 'http',
+      receiptHelperTimeoutMs: 60_000,
+      receiptHelperToken: undefined,
       receiptStorageDir: '/data/receipts',
       receiptImageRetention: 'keep',
     });
@@ -100,6 +124,33 @@ describe('runtime configuration', () => {
         RECEIPT_OCR_TIMEOUT_MS: '0',
       }),
     ).toThrow(/RECEIPT_OCR_TIMEOUT_MS/);
+  });
+
+  it('rejects a non-URL helper endpoint', () => {
+    expect(() =>
+      readConfig({
+        CANONICAL_ORIGIN: 'https://shopping-list.example.ts.net',
+        RECEIPT_HELPER_URL: 'helper:8070',
+      }),
+    ).toThrow(/RECEIPT_HELPER_URL/);
+  });
+
+  it('rejects an unknown helper mode', () => {
+    expect(() =>
+      readConfig({
+        CANONICAL_ORIGIN: 'https://shopping-list.example.ts.net',
+        RECEIPT_HELPER_MODE: 'live',
+      }),
+    ).toThrow(/RECEIPT_HELPER_MODE/);
+  });
+
+  it('rejects a non-positive helper timeout', () => {
+    expect(() =>
+      readConfig({
+        CANONICAL_ORIGIN: 'https://shopping-list.example.ts.net',
+        RECEIPT_HELPER_TIMEOUT_MS: '-1',
+      }),
+    ).toThrow(/RECEIPT_HELPER_TIMEOUT_MS/);
   });
 
   it('rejects an unassigned image retention policy', () => {
