@@ -16,6 +16,7 @@ import {
 } from '../../src/lib/server/db/connection';
 import { migrateAndBootstrap } from '../../src/lib/server/db/lifecycle.js';
 import { openSqliteDatabase } from '../../src/lib/server/db/sqlite.js';
+import { getServerInstanceId } from '../../src/lib/server/instance';
 import {
   createStubOcrEngine,
   type OcrEngine,
@@ -141,6 +142,7 @@ function uploadRequest(): Request {
   return new Request('http://localhost:5173/api/receipts', {
     method: 'POST',
     body,
+    headers: { 'x-server-instance-id': getServerInstanceId() },
   });
 }
 
@@ -545,7 +547,9 @@ describe('manual retry', () => {
       lastError: 'the sidecar is unreachable',
     });
 
-    expect(retryReceipt(id, database)).toEqual({ id, status: 'pending' });
+    expect(
+      retryReceipt(id, { serverInstanceId: getServerInstanceId() }, database),
+    ).toEqual({ id, status: 'pending' });
     expect(receiptRow(id)).toMatchObject({
       status: 'pending',
       attempts: 0,
@@ -557,7 +561,7 @@ describe('manual retry', () => {
     const id = insertReceipt({ status: 'failed', attempts: 3 });
     writeImage(id);
 
-    retryReceipt(id, database);
+    retryReceipt(id, { serverInstanceId: getServerInstanceId() }, database);
 
     expect(await tick()).toEqual({ outcome: 'processed', receiptId: id });
     expect(receiptRow(id)).toMatchObject({ status: 'review', attempts: 1 });
@@ -576,7 +580,9 @@ describe('manual retry', () => {
           : {}),
       });
 
-      expect(() => retryReceipt(id, database)).toThrowError(
+      expect(() =>
+        retryReceipt(id, { serverInstanceId: getServerInstanceId() }, database),
+      ).toThrowError(
         expect.objectContaining({ status: 409, code: 'INVALID_STATUS' }),
       );
       expect(receiptRow(id).status).toBe(status);
@@ -584,9 +590,13 @@ describe('manual retry', () => {
   );
 
   it('reports an unknown receipt', () => {
-    expect(() => retryReceipt(randomUUID(), database)).toThrowError(
-      expect.objectContaining({ status: 404, code: 'NOT_FOUND' }),
-    );
+    expect(() =>
+      retryReceipt(
+        randomUUID(),
+        { serverInstanceId: getServerInstanceId() },
+        database,
+      ),
+    ).toThrowError(expect.objectContaining({ status: 404, code: 'NOT_FOUND' }));
   });
 
   it('only reaches receipts in the current list', () => {
@@ -602,9 +612,9 @@ describe('manual retry', () => {
       )
       .run(id, otherListId, 'b'.repeat(64));
 
-    expect(() => retryReceipt(id, database)).toThrowError(
-      expect.objectContaining({ status: 404 }),
-    );
+    expect(() =>
+      retryReceipt(id, { serverInstanceId: getServerInstanceId() }, database),
+    ).toThrowError(expect.objectContaining({ status: 404 }));
   });
 });
 

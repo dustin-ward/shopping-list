@@ -9,6 +9,7 @@ import { AppError } from '../../src/lib/server/errors';
 function line(overrides: Partial<EditableLine> = {}): EditableLine {
   return {
     rawText: 'MILK 2% 1L',
+    parsedName: 'MILK 2% 1L',
     quantityReal: null,
     quantityText: null,
     quantityUnit: null,
@@ -45,6 +46,7 @@ describe('resolveLineEdit', () => {
 
     expect(resolved).toEqual({
       rawText: 'MILK 2% 1L',
+      parsedName: 'MILK 2% 1L',
       quantityReal: 2,
       quantityText: '2 @ 1.50',
       quantityUnit: 'ea',
@@ -54,6 +56,29 @@ describe('resolveLineEdit', () => {
       catalogItemId: null,
       boundVia: null,
       boundRank: null,
+    });
+  });
+
+  it('re-derives the parsed phrase when reviewed printed text changes', () => {
+    const changedName = resolveLineEdit(
+      line({ rawText: 'SOURDOUGH BREAD', parsedName: 'SOURDOUGH BREAD' }),
+      { rawText: 'PRICES LOAF 7B31A087' },
+    );
+    const changedQuantity = resolveLineEdit(
+      line({
+        rawText: 'CUCUMBERS 2 @ 1.50',
+        parsedName: 'CUCUMBERS',
+      }),
+      { rawText: 'CUCUMBERS 3 @ 1.50' },
+    );
+
+    expect(changedName).toMatchObject({
+      rawText: 'PRICES LOAF 7B31A087',
+      parsedName: 'PRICES LOAF 7B31A087',
+    });
+    expect(changedQuantity).toMatchObject({
+      rawText: 'CUCUMBERS 3 @ 1.50',
+      parsedName: 'CUCUMBERS',
     });
   });
 

@@ -14,6 +14,7 @@ import { AppError } from '../../src/lib/server/errors';
 import { closeDatabase } from '../../src/lib/server/db/connection';
 import { migrateAndBootstrap } from '../../src/lib/server/db/lifecycle.js';
 import { openSqliteDatabase } from '../../src/lib/server/db/sqlite.js';
+import { getServerInstanceId } from '../../src/lib/server/instance';
 import type { HelperEngine } from '../../src/lib/server/receipts/helper-engine';
 import { parseReceiptOcr } from '../../src/lib/server/receipts/parser';
 import {
@@ -134,26 +135,34 @@ function insertWashedReceipt(
 
 function reparseEvent(id: string, body: unknown): ReparseEvent {
   const url = new URL(`${origin}/api/receipts/${id}/reparse`);
+  const requestBody =
+    body && typeof body === 'object' && !Array.isArray(body)
+      ? { serverInstanceId: getServerInstanceId(), ...body }
+      : body;
   return {
     url,
     params: { id },
     request: new Request(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(requestBody),
     }),
   } as unknown as ReparseEvent;
 }
 
 function patchEvent(id: string, body: unknown): PatchEvent {
   const url = new URL(`${origin}/api/receipts/${id}`);
+  const requestBody =
+    body && typeof body === 'object' && !Array.isArray(body)
+      ? { serverInstanceId: getServerInstanceId(), ...body }
+      : body;
   return {
     url,
     params: { id },
     request: new Request(url, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(requestBody),
     }),
   } as unknown as PatchEvent;
 }
@@ -290,6 +299,26 @@ describe('POST /api/receipts/[id]/reparse — the fallback helper', () => {
     expect(lineRows(id)).toEqual(before);
   });
 
+  it('refuses a re-parse from a different server instance before replacing lines', async () => {
+    const { id, updatedAt } = insertWashedReceipt();
+    const beforeReceipt = receiptRow(id);
+    const beforeLines = lineRows(id);
+
+    const response = await reparsePost(
+      reparseEvent(id, {
+        serverInstanceId: randomUUID(),
+        expectedUpdatedAt: updatedAt,
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'SERVER_CHANGED' },
+    });
+    expect(receiptRow(id)).toEqual(beforeReceipt);
+    expect(lineRows(id)).toEqual(beforeLines);
+  });
+
   it('refuses a receipt that is not in review', async () => {
     const { id, updatedAt } = insertWashedReceipt({ status: 'discarded' });
 
@@ -332,7 +361,10 @@ describe('POST /api/receipts/[id]/reparse — the fallback helper', () => {
     await expect(
       reparseReceiptWithHelper(
         id,
-        { expectedUpdatedAt: updatedAt },
+        {
+          serverInstanceId: getServerInstanceId(),
+          expectedUpdatedAt: updatedAt,
+        },
         {
           engine: failing,
         },

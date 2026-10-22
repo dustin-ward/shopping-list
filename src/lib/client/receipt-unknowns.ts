@@ -74,15 +74,21 @@ export function fetchUnknownLinesOverview(): Promise<UnknownLinesOverview> {
 
 /**
  * Bind one grouped wording to an item. The group travels by its normalized
- * text, the key the browser already holds; the answer is the fresh view plus
- * the number of lines that actually moved, so a group another device emptied
- * first cannot make the surface claim work it did not do.
+ * text, the key the browser already holds, and the instance guard travels from
+ * the page's verified snapshot; the answer is the fresh view plus the number of
+ * lines that actually moved, so a group another device emptied first cannot
+ * make the surface claim work it did not do.
  */
 export function submitUnknownBind(
   normalizedText: string,
   catalogItemId: string,
+  serverInstanceId: string,
 ): Promise<UnknownLinesBindResult> {
-  const input: UnknownLinesBindInput = { normalizedText, catalogItemId };
+  const input: UnknownLinesBindInput = {
+    serverInstanceId,
+    normalizedText,
+    catalogItemId,
+  };
   return requestJson<UnknownLinesBindResult>('/api/unknown-lines/bind', {
     method: 'POST',
     body: input,
@@ -115,5 +121,5 @@ function learnedAliasSentence(
   if (!group.normalizedText) {
     return 'The lines have no printed wording, so matching learns nothing.';
   }
-  return `Matching will learn "${group.printedText}" for ${itemName}.`;
+  return `Matching will learn the item-name phrase from "${group.printedText}" for ${itemName}.`;
 }

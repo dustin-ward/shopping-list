@@ -30,8 +30,17 @@ const image = readFileSync(
  * the list rather than a dedupe of an earlier run.
  */
 async function captureWashedOut(request: APIRequestContext): Promise<string> {
+  const snapshotResponse = await request.get('/api/snapshot');
+  expect(snapshotResponse.ok()).toBe(true);
+  const { serverInstanceId } = (await snapshotResponse.json()) as {
+    serverInstanceId: string;
+  };
   const response = await request.post('/api/receipts', {
-    headers: { origin: helperOrigin, 'x-forwarded-proto': 'http' },
+    headers: {
+      origin: helperOrigin,
+      'x-forwarded-proto': 'http',
+      'x-server-instance-id': serverInstanceId,
+    },
     multipart: {
       image: {
         name: 'receipt.png',
@@ -161,6 +170,9 @@ test('leaves the offer off a receipt the helper already re-parsed', async ({
   const detail = (await (
     await request.get(`/api/receipts/${receiptId}`)
   ).json()) as { updatedAt: string; status: string };
+  const snapshot = (await (await request.get('/api/snapshot')).json()) as {
+    serverInstanceId: string;
+  };
 
   const reparsed = await request.post(`/api/receipts/${receiptId}/reparse`, {
     headers: {
@@ -168,7 +180,10 @@ test('leaves the offer off a receipt the helper already re-parsed', async ({
       'x-forwarded-proto': 'http',
       'content-type': 'application/json',
     },
-    data: { expectedUpdatedAt: detail.updatedAt },
+    data: {
+      serverInstanceId: snapshot.serverInstanceId,
+      expectedUpdatedAt: detail.updatedAt,
+    },
   });
   expect(reparsed.ok()).toBe(true);
   expect(

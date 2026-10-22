@@ -65,6 +65,7 @@
   let {
     detail,
     writable = false,
+    serverInstanceId = '',
     helperEnabled = false,
     catalogItems = [],
     groups = [],
@@ -73,6 +74,8 @@
   }: {
     detail: ReceiptDetail;
     writable?: boolean;
+    /** The page's verified server instance: every mutation carries it. */
+    serverInstanceId?: string;
     /** `RECEIPT_HELPER_URL` configured: the fallback re-parse may be offered. */
     helperEnabled?: boolean;
     catalogItems?: readonly CatalogItemOption[];
@@ -214,17 +217,22 @@
     }
   }
 
-  async function save(patch: Omit<UpdateReceiptInput, 'expectedUpdatedAt'>) {
+  async function save(
+    patch: Omit<UpdateReceiptInput, 'serverInstanceId' | 'expectedUpdatedAt'>,
+  ) {
     saving = true;
     try {
       const updated = await saveReceiptReview(detail.id, {
+        serverInstanceId,
         expectedUpdatedAt: detail.updatedAt,
         ...patch,
       });
       saveError = '';
       onSaved(updated);
     } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
+      if (error instanceof ApiError && error.code === 'SERVER_CHANGED') {
+        await reloadAfterConflict(error.message);
+      } else if (error instanceof ApiError && error.status === 409) {
         await reloadAfterConflict(
           'This receipt changed on another device — the latest version is shown.',
         );
@@ -266,7 +274,7 @@
     try {
       const updated = await submitReceiptRepair(
         detail.id,
-        repairReceiptInput(detail, lineId, patch),
+        repairReceiptInput(detail, serverInstanceId, lineId, patch),
       );
       saveError = '';
       onSaved(updated);
@@ -335,7 +343,10 @@
       await queue;
       const updated = await submitReceiptCommit(
         detail.id,
-        commitReceiptInput(detail, { itemDrafts, storeDraft }),
+        commitReceiptInput(detail, serverInstanceId, {
+          itemDrafts,
+          storeDraft,
+        }),
       );
       itemDrafts = {};
       storeDraft = '';
@@ -371,7 +382,7 @@
     discarding = true;
     try {
       await queue;
-      const updated = await submitReceiptDiscard(detail.id);
+      const updated = await submitReceiptDiscard(detail.id, serverInstanceId);
       onSaved(updated);
       onSettled?.(updated);
     } catch (error) {
@@ -416,7 +427,7 @@
       await queue;
       const updated = await submitReceiptReparse(
         detail.id,
-        reparseReceiptInput(detail),
+        reparseReceiptInput(detail, serverInstanceId),
       );
       itemDrafts = {};
       saveError = '';

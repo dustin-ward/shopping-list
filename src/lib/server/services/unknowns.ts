@@ -6,10 +6,11 @@
  * Reading is the unidentified-spending view: every committed item line the
  * reviewer marked unknown, grouped by the wording the store printed. Writing is
  * a batch bind of one group: the item the reviewer picks becomes the binding of
- * every constituent line, in one transaction, and the wording becomes a learned
- * alias (source `review`) — the commit path's own rule — so the next receipt
- * that prints it binds without asking. A line with no printed wording can be
- * bound too, but teaches nothing: there is no phrase to match next time.
+ * every constituent line, in one transaction, and the representative line's
+ * matching phrase becomes a learned alias (source `review`) — the commit path's
+ * own rule — so the next receipt that prints it binds without asking. A line
+ * with no printed wording can be bound too, but teaches nothing: there is no
+ * phrase to match next time.
  *
  * The bind is deliberately idempotent at the row level: it updates only lines
  * that are still `unknown`, so a group another device has already repaired is
@@ -31,6 +32,7 @@ import {
   type UnknownLineRow,
 } from '../receipts/unknown-lines';
 import {
+  assertServerInstance,
   currentListId,
   runWriteTransaction,
   timestampNow,
@@ -50,7 +52,7 @@ export function listUnknownLines(
 /**
  * Bind every line of one grouped wording to an item. Only committed receipts
  * are the browser's scope, only item lines in `unknown` are its rows, and the
- * representative (most recent) printing is what the alias records.
+ * representative (most recent) line supplies the phrase the matcher reads.
  *
  * A phrase that already belongs to another item is not refused: conflicts are
  * kept (`ADR 0003`) and matching asks about them on the next receipt instead of
@@ -61,6 +63,7 @@ export function bindUnknownLineGroup(
   database: SqliteDatabase = getRawDatabase(),
   currency: string = getConfig().receiptCurrency,
 ): UnknownLinesBindResult {
+  assertServerInstance(input.serverInstanceId);
   const listId = currentListId(database);
   // The schema trims; normalization stays here too because the group key the
   // browser holds is normalized, and a defensive re-run can only make it match.
@@ -106,8 +109,8 @@ export function bindUnknownLineGroup(
         input.catalogItemId,
         {
           lineId: group.lineIds[0]!,
-          aliasText: group.printedText,
-          normalizedAlias: group.normalizedText,
+          aliasText: group.matchingPhrase,
+          normalizedAlias: normalizeName(group.matchingPhrase),
         },
         now,
       );
@@ -144,6 +147,7 @@ function loadUnknownLineRows(
   return database
     .prepare(
       `SELECT l.id AS lineId, l.raw_text AS rawText,
+              l.parsed_name AS parsedName,
               l.total_price_minor AS totalPriceMinor,
               l.quantity_real AS quantityReal,
               l.unit_price_minor AS unitPriceMinor,

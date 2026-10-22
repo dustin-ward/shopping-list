@@ -98,19 +98,19 @@ describe('unidentifiedSpendSummary', () => {
 describe('the batch bind sentences', () => {
   it('asks for the tap and says what the bind teaches', () => {
     expect(unknownBindQuestion(group(), 'Milk')).toBe(
-      'Bind 3 lines to Milk? Matching will learn "MYSTERY ITEM" for Milk.',
+      'Bind 3 lines to Milk? Matching will learn the item-name phrase from "MYSTERY ITEM" for Milk.',
     );
   });
 
   it('counts a one-line group in the singular', () => {
     expect(unknownBindQuestion(group({ lineCount: 1 }), 'Milk')).toBe(
-      'Bind 1 line to Milk? Matching will learn "MYSTERY ITEM" for Milk.',
+      'Bind 1 line to Milk? Matching will learn the item-name phrase from "MYSTERY ITEM" for Milk.',
     );
   });
 
   it('reports how many lines the bind actually changed', () => {
     expect(unknownBindNotice(group(), 'Milk', 2)).toBe(
-      'Bound 2 lines to Milk. Matching will learn "MYSTERY ITEM" for Milk.',
+      'Bound 2 lines to Milk. Matching will learn the item-name phrase from "MYSTERY ITEM" for Milk.',
     );
   });
 

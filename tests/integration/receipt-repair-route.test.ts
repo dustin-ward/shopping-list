@@ -13,6 +13,7 @@ import { handle } from '../../src/hooks.server';
 import { closeDatabase } from '../../src/lib/server/db/connection';
 import { migrateAndBootstrap } from '../../src/lib/server/db/lifecycle.js';
 import { openSqliteDatabase } from '../../src/lib/server/db/sqlite.js';
+import { getServerInstanceId } from '../../src/lib/server/instance';
 import { parseReceiptOcr } from '../../src/lib/server/receipts/parser';
 import {
   listReceipts,
@@ -285,12 +286,16 @@ async function submit(
 }
 
 function repair(id: string, body: unknown): Promise<Response> {
+  const requestBody =
+    body && typeof body === 'object' && !Array.isArray(body)
+      ? { serverInstanceId: getServerInstanceId(), ...body }
+      : body;
   return submit(
     repairRoute,
     new Request(`${origin}/api/receipts/${id}/repair`, {
       method: 'POST',
       headers: { host, origin, 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(requestBody),
     }),
     { id },
   );
@@ -628,6 +633,31 @@ describe('POST /api/receipts/[id]/repair — the refusals', () => {
       error: { code: 'RECEIPT_CHANGED' },
     });
     expect(lineRow(boundLineId).catalog_item_id).toBe(milkItemId);
+  });
+
+  it('refuses a repair from a different server instance before writing', async () => {
+    const { id, boundLineId } = insertCommittedReceipt();
+    const beforeReceipt = receiptRow(id);
+    const beforeLine = lineRow(boundLineId);
+    const beforeRevision = revision();
+
+    const response = await repair(
+      id,
+      repairBody({
+        serverInstanceId: randomUUID(),
+        lines: [
+          { id: boundLineId, reviewState: 'bound', catalogItemId: breadItemId },
+        ],
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'SERVER_CHANGED' },
+    });
+    expect(receiptRow(id)).toEqual(beforeReceipt);
+    expect(lineRow(boundLineId)).toEqual(beforeLine);
+    expect(revision()).toBe(beforeRevision);
   });
 
   it('refuses a parked row: a repair corrects a binding, not a parser row', async () => {

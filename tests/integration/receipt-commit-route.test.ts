@@ -13,6 +13,7 @@ import { handle } from '../../src/hooks.server';
 import { closeDatabase } from '../../src/lib/server/db/connection';
 import { migrateAndBootstrap } from '../../src/lib/server/db/lifecycle.js';
 import { openSqliteDatabase } from '../../src/lib/server/db/sqlite.js';
+import { getServerInstanceId } from '../../src/lib/server/instance';
 import { parseReceiptOcr } from '../../src/lib/server/receipts/parser';
 import {
   getReceiptDetail,
@@ -258,24 +259,31 @@ async function submit(
 }
 
 function commit(id: string, body: unknown): Promise<Response> {
+  const requestBody =
+    body && typeof body === 'object' && !Array.isArray(body)
+      ? { serverInstanceId: getServerInstanceId(), ...body }
+      : body;
   return submit(
     commitRoute,
     new Request(`${origin}/api/receipts/${id}/commit`, {
       method: 'POST',
       headers: { host, origin, 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(requestBody),
     }),
     { id },
   );
 }
 
-function discard(id: string): Promise<Response> {
+function discard(
+  id: string,
+  serverInstanceId = getServerInstanceId(),
+): Promise<Response> {
   return submit(
     discardRoute,
     new Request(`${origin}/api/receipts/${id}/discard`, {
       method: 'POST',
       headers: { host, origin, 'content-type': 'application/json' },
-      body: '{}',
+      body: JSON.stringify({ serverInstanceId }),
     }),
     { id },
   );
@@ -290,7 +298,11 @@ function upload(): Promise<Response> {
     uploadRoute,
     new Request(`${origin}/api/receipts`, {
       method: 'POST',
-      headers: { host, origin },
+      headers: {
+        host,
+        origin,
+        'x-server-instance-id': getServerInstanceId(),
+      },
       body,
     }),
     {},
@@ -658,6 +670,34 @@ describe('POST /api/receipts/[id]/commit — the gate', () => {
     expect(query('SELECT id FROM item_aliases')).toEqual([]);
   });
 
+  it('refuses a commit from a different server instance before writing', async () => {
+    const { id, draftLineId } = insertReviewableReceipt();
+    const beforeReceipt = receiptRow(id);
+    const beforeRevision = revision();
+
+    const response = await commit(
+      id,
+      commitBody({
+        serverInstanceId: randomUUID(),
+        itemDrafts: [{ lineId: draftLineId, name: 'Sourdough loaf' }],
+        storeDraft: 'Trader Joe’s',
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'SERVER_CHANGED' },
+    });
+    expect(receiptRow(id)).toEqual(beforeReceipt);
+    expect(
+      query(
+        "SELECT id FROM catalog_items WHERE normalized_name = 'sourdough loaf'",
+      ),
+    ).toEqual([]);
+    expect(query('SELECT id FROM item_aliases')).toEqual([]);
+    expect(revision()).toBe(beforeRevision);
+  });
+
   it('refuses a second commit with a conflict and learns no second alias', async () => {
     const { id, draftLineId } = insertReviewableReceipt();
     const first = await commit(
@@ -739,6 +779,7 @@ describe('POST /api/receipts/[id]/commit — the gate', () => {
         method: 'PATCH',
         headers: { host, origin, 'content-type': 'application/json' },
         body: JSON.stringify({
+          serverInstanceId: getServerInstanceId(),
           expectedUpdatedAt: '2026-10-17T12:00:00.000Z',
           lines: [{ id: draftLineId, reviewState: 'skipped' }],
         }),
@@ -843,6 +884,20 @@ describe('POST /api/receipts/[id]/discard', () => {
       error: { code: 'RECEIPT_COMMITTED' },
     });
     expect(receiptRow(id).status).toBe('committed');
+  });
+
+  it('refuses a discard from a different server instance before writing', async () => {
+    const { id, imagePath } = insertReviewableReceipt({ storeGroupId });
+    const beforeReceipt = receiptRow(id);
+
+    const response = await discard(id, randomUUID());
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'SERVER_CHANGED' },
+    });
+    expect(receiptRow(id)).toEqual(beforeReceipt);
+    expect(existsSync(join(storageDir, imagePath))).toBe(true);
   });
 
   it('reports an unknown receipt as missing', async () => {

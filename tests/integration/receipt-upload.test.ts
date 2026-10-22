@@ -11,6 +11,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrateAndBootstrap } from '../../src/lib/server/db/lifecycle.js';
 import { openSqliteDatabase } from '../../src/lib/server/db/sqlite.js';
+import { getServerInstanceId } from '../../src/lib/server/instance';
 import {
   acceptReceiptUpload,
   MAX_RECEIPT_IMAGE_BYTES,
@@ -73,7 +74,11 @@ function uploadRequest(
 ): Request {
   const body = new FormData();
   body.set('image', new Blob([bodyInit(bytes)], { type }), filename);
-  return new Request(UPLOAD_URL, { method: 'POST', body });
+  return new Request(UPLOAD_URL, {
+    method: 'POST',
+    body,
+    headers: { 'x-server-instance-id': getServerInstanceId() },
+  });
 }
 
 function upload(bytes: Uint8Array, filename?: string, type?: string) {
@@ -156,6 +161,7 @@ describe('receipt upload', () => {
       body,
       headers: {
         'content-length': String(MAX_RECEIPT_IMAGE_BYTES + 1024 * 1024),
+        'x-server-instance-id': getServerInstanceId(),
       },
     });
 
@@ -179,7 +185,11 @@ describe('receipt upload', () => {
   it('rejects a multipart body with no image part', async () => {
     const body = new FormData();
     body.set('capturedAt', '2026-10-17T12:00:00.000Z');
-    const request = new Request(UPLOAD_URL, { method: 'POST', body });
+    const request = new Request(UPLOAD_URL, {
+      method: 'POST',
+      body,
+      headers: { 'x-server-instance-id': getServerInstanceId() },
+    });
 
     await expect(
       acceptReceiptUpload(request, database, storageDir),
@@ -192,7 +202,10 @@ describe('receipt upload', () => {
     const request = new Request(UPLOAD_URL, {
       method: 'POST',
       body: bodyInit(imageBytes('jpeg')),
-      headers: { 'content-type': 'image/jpeg' },
+      headers: {
+        'content-type': 'image/jpeg',
+        'x-server-instance-id': getServerInstanceId(),
+      },
     });
 
     await expect(
@@ -307,7 +320,10 @@ describe('receipt upload', () => {
     const request = new Request(UPLOAD_URL, {
       method: 'POST',
       body,
-      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      headers: {
+        'content-type': `multipart/form-data; boundary=${boundary}`,
+        'x-server-instance-id': getServerInstanceId(),
+      },
       duplex: 'half',
     } as RequestInit & { duplex: 'half' });
 

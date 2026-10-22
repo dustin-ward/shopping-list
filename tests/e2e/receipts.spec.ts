@@ -64,8 +64,13 @@ async function receiptCount(request: APIRequestContext): Promise<number> {
  * both codes are success here.
  */
 async function capture(request: APIRequestContext): Promise<string> {
+  const { serverInstanceId } = await readHousehold(request);
   const response = await request.post('/api/receipts', {
-    headers: { origin: featureOnOrigin, 'x-forwarded-proto': 'http' },
+    headers: {
+      origin: featureOnOrigin,
+      'x-forwarded-proto': 'http',
+      'x-server-instance-id': serverInstanceId,
+    },
     multipart: {
       image: { name: 'receipt.png', mimeType: 'image/png', buffer: image },
     },
@@ -84,8 +89,13 @@ async function captureUnique(
   request: APIRequestContext,
   tag: string,
 ): Promise<string> {
+  const { serverInstanceId } = await readHousehold(request);
   const response = await request.post('/api/receipts', {
-    headers: { origin: featureOnOrigin, 'x-forwarded-proto': 'http' },
+    headers: {
+      origin: featureOnOrigin,
+      'x-forwarded-proto': 'http',
+      'x-server-instance-id': serverInstanceId,
+    },
     multipart: {
       image: {
         name: 'receipt.png',
@@ -459,7 +469,7 @@ test('edits a line: the strip follows, and the edit survives a reload', async ({
   await openReceiptsTab(page);
   await openNewestReceipt(page);
 
-  const reread = lineRow(page, 'MILK 2% 1L');
+  const reread = lineRow(page, 'MILK 2% 2L');
   await expect(reread.getByLabel('Printed text')).toHaveValue('MILK 2% 2L');
   await expect(reread.getByLabel('Line total')).toHaveValue('4.00');
   await expect(page.locator('.totals-strip .totals-items')).toContainText(
@@ -533,8 +543,9 @@ test('browses unknown lines by wording and binds a whole group to an item', asyn
   const milk = lineRow(page, 'MILK 2% 1L');
   await milk.getByLabel('Printed text').fill(phrase);
   await milk.getByLabel('Printed text').press('Enter');
-  await milk.getByRole('button', { name: /can't identify/i }).click();
-  await expect(milk.locator('.line-state')).toHaveText('Unknown');
+  const rewordedMilk = lineRow(page, phrase);
+  await rewordedMilk.getByRole('button', { name: /can't identify/i }).click();
+  await expect(rewordedMilk.locator('.line-state')).toHaveText('Unknown');
   for (const parsedName of [
     'SOURDOUGH BREAD',
     'GALA APPLES',
@@ -813,7 +824,10 @@ test('commits a reviewed receipt: the drafts become rows and the view goes read-
   ).json()) as { updatedAt: string };
   const again = await request.post(`/api/receipts/${receiptId}/commit`, {
     headers: mutationHeaders,
-    data: { expectedUpdatedAt: detail.updatedAt },
+    data: {
+      serverInstanceId: household.serverInstanceId,
+      expectedUpdatedAt: detail.updatedAt,
+    },
   });
   expect(again.status()).toBe(409);
   expect(((await again.json()) as { error: { code: string } }).error.code).toBe(
@@ -851,9 +865,12 @@ test('reads matching stats: provenance shares, reconciliation and accepted ranks
   const printedText = `STATS MILK ${suffix}`;
   await milk.getByLabel('Printed text').fill(printedText);
   await milk.getByLabel('Printed text').press('Enter');
-  await expect(milk.getByLabel('Printed text')).toHaveValue(printedText);
-  await milk.getByLabel('Find item').fill(itemName);
-  await milk
+  const reviewedMilk = lineRow(page, printedText);
+  await expect(reviewedMilk.getByLabel('Printed text')).toHaveValue(
+    printedText,
+  );
+  await reviewedMilk.getByLabel('Find item').fill(itemName);
+  await reviewedMilk
     .locator('.item-matches button.match-button', { hasText: itemName })
     .click();
   for (const parsedName of [

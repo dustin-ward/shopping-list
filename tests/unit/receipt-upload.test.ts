@@ -9,6 +9,7 @@ import {
 } from '../../src/lib/client/receipt-upload';
 
 const RECEIPT_ID = '8f14e45f-ea0b-4a3c-9c1e-4e2f9a3b7c11';
+const SERVER_INSTANCE_ID = '1c05d4e0-90ba-4bc1-b50f-2edb2a5a8725';
 
 type Listener = () => void;
 
@@ -17,6 +18,7 @@ class FakeUploadRequest implements UploadRequest {
   url = '';
   status = 0;
   responseText = '';
+  headers = new Map<string, string>();
   sent: FormData | null = null;
   private listeners = new Map<string, Listener>();
   private progressListener: ((event: ProgressEvent) => void) | null = null;
@@ -33,6 +35,10 @@ class FakeUploadRequest implements UploadRequest {
   open(method: string, url: string): void {
     this.method = method;
     this.url = url;
+  }
+
+  setRequestHeader(name: string, value: string): void {
+    this.headers.set(name, value);
   }
 
   addEventListener(type: string, listener: Listener): void {
@@ -176,10 +182,16 @@ describe('uploadReceipt', () => {
   it('posts the prepared image as multipart to the upload endpoint', async () => {
     const request = new FakeUploadRequest();
 
-    const pending = uploadReceipt(file, { createRequest: () => request });
+    const pending = uploadReceipt(file, {
+      serverInstanceId: SERVER_INSTANCE_ID,
+      createRequest: () => request,
+    });
 
     expect(request.method).toBe('POST');
     expect(request.url).toBe('/api/receipts');
+    expect(request.headers.get('x-server-instance-id')).toBe(
+      SERVER_INSTANCE_ID,
+    );
     const sent = request.sent;
     expect(sent?.get('image')).toBeInstanceOf(File);
     expect((sent?.get('image') as File).name).toBe('receipt.webp');
@@ -202,7 +214,11 @@ describe('uploadReceipt', () => {
     const request = new FakeUploadRequest();
     const onProgress = vi.fn();
 
-    uploadReceipt(file, { createRequest: () => request, onProgress });
+    uploadReceipt(file, {
+      serverInstanceId: SERVER_INSTANCE_ID,
+      createRequest: () => request,
+      onProgress,
+    });
     request.emitProgress(30, 100);
     request.emitProgress(50, 100);
     request.emitProgress(80, 100, false);
@@ -219,7 +235,10 @@ describe('uploadReceipt', () => {
   it('rejects with an offline error when the request never reaches the server', async () => {
     const request = new FakeUploadRequest();
 
-    const pending = uploadReceipt(file, { createRequest: () => request });
+    const pending = uploadReceipt(file, {
+      serverInstanceId: SERVER_INSTANCE_ID,
+      createRequest: () => request,
+    });
     request.emit('error');
 
     await expect(pending).rejects.toMatchObject({ code: 'NETWORK_ERROR' });

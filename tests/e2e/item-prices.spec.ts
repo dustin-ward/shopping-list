@@ -32,8 +32,15 @@ async function captureUnique(
   request: APIRequestContext,
   tag: string,
 ): Promise<void> {
+  const household = (await (await request.get('/api/snapshot')).json()) as {
+    serverInstanceId: string;
+  };
   const response = await request.post('/api/receipts', {
-    headers: { origin: featureOnOrigin, 'x-forwarded-proto': 'http' },
+    headers: {
+      origin: featureOnOrigin,
+      'x-forwarded-proto': 'http',
+      'x-server-instance-id': household.serverInstanceId,
+    },
     multipart: {
       image: {
         name: 'receipt.png',
@@ -124,13 +131,14 @@ test('prices sheet reads a committed receipt, links back to it, and nudges the a
   const printedVariant = `PRICES LOAF ${suffix.toUpperCase()}`;
   await bread.getByLabel('Printed text').fill(printedVariant);
   await bread.getByLabel('Printed text').press('Enter');
-  await bread.getByRole('button', { name: 'Create new item' }).click();
-  await bread.getByLabel('New item name').fill(itemName);
+  const reviewedBread = lineRow(page, printedVariant);
+  await reviewedBread.getByRole('button', { name: 'Create new item' }).click();
+  await reviewedBread.getByLabel('New item name').fill(itemName);
   // A print of "2 @ 2.00" is what makes the line comparable at all.
-  await bread.getByLabel('Quantity', { exact: true }).fill('2');
-  await bread.getByLabel('Unit', { exact: true }).selectOption('ea');
-  await bread.getByLabel('Unit price').fill('2.00');
-  await bread.getByLabel('Unit price').press('Enter');
+  await reviewedBread.getByLabel('Quantity', { exact: true }).fill('2');
+  await reviewedBread.getByLabel('Unit', { exact: true }).selectOption('ea');
+  await reviewedBread.getByLabel('Unit price').fill('2.00');
+  await reviewedBread.getByLabel('Unit price').press('Enter');
   for (const parsedName of ['MILK 2% 1L', 'GALA APPLES', 'CHEDDAR CHEESE']) {
     await lineRow(page, parsedName)
       .getByRole('button', { name: /can't identify/i })

@@ -12,6 +12,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrateAndBootstrap } from '../../src/lib/server/db/lifecycle.js';
 import { openSqliteDatabase } from '../../src/lib/server/db/sqlite.js';
+import { getServerInstanceId } from '../../src/lib/server/instance';
 import { createHttpOcrEngine } from '../../src/lib/server/receipts/ocr-engine';
 import {
   retryReceipt,
@@ -238,7 +239,7 @@ describe('worker against a real OCR endpoint', () => {
     });
 
     // Manual retry with the shared token completes the same receipt.
-    retryReceipt(id, database);
+    retryReceipt(id, { serverInstanceId: getServerInstanceId() }, database);
     expect(
       await runReceiptWorkerTick({
         database,

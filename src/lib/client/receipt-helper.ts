@@ -36,14 +36,16 @@ export function helperOffer(
 }
 
 /**
- * The re-parse request. The `updatedAt` guard is the same one every review edit
+ * The re-parse request. The instance guard comes from the page's verified
+ * snapshot, and the `updatedAt` guard is the same one every review edit
  * carries: the helper replaces the lines, so a request built from a view that
  * has since moved on must be refused rather than throw away newer decisions.
  */
 export function reparseReceiptInput(
   detail: Pick<ReceiptDetail, 'updatedAt'>,
+  serverInstanceId: string,
 ): ReparseReceiptInput {
-  return { expectedUpdatedAt: detail.updatedAt };
+  return { serverInstanceId, expectedUpdatedAt: detail.updatedAt };
 }
 
 /** Hand the receipt's stored OCR evidence to the helper; the fresh detail comes back. */

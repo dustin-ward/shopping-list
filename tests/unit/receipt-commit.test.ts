@@ -20,6 +20,7 @@ import type {
 
 const ITEM_ID = '00000000-0000-4000-8000-0000000000aa';
 const STORE_ID = '00000000-0000-4000-8000-0000000000bb';
+const SERVER_INSTANCE_ID = '00000000-0000-4000-8000-0000000000cc';
 const RECEIPT_ID = '00000000-0000-4000-8000-0000000000cc';
 
 function line(overrides: Partial<ReceiptDetailLine> = {}): ReceiptDetailLine {
@@ -189,11 +190,12 @@ describe('commitReceiptInput', () => {
     });
 
     expect(
-      commitReceiptInput(receipt, {
+      commitReceiptInput(receipt, SERVER_INSTANCE_ID, {
         itemDrafts: { 'new-line': 'Sourdough loaf' },
         storeDraft: '',
       }),
     ).toEqual({
+      serverInstanceId: SERVER_INSTANCE_ID,
       expectedUpdatedAt: '2026-10-17T12:05:00.000Z',
       itemDrafts: [{ lineId: 'new-line', name: 'Sourdough loaf' }],
     });
@@ -202,11 +204,12 @@ describe('commitReceiptInput', () => {
   it('sends a drafted store name, and never both spellings of the store', () => {
     const drafting = detail({ lines: [line({ reviewState: 'skipped' })] });
     expect(
-      commitReceiptInput(drafting, {
+      commitReceiptInput(drafting, SERVER_INSTANCE_ID, {
         itemDrafts: {},
         storeDraft: ' Trader Joe’s ',
       }),
     ).toEqual({
+      serverInstanceId: SERVER_INSTANCE_ID,
       expectedUpdatedAt: '2026-10-17T12:05:00.000Z',
       storeDraft: 'Trader Joe’s',
     });
@@ -216,11 +219,14 @@ describe('commitReceiptInput', () => {
       lines: [line({ reviewState: 'skipped' })],
     });
     expect(
-      commitReceiptInput(chosen, {
+      commitReceiptInput(chosen, SERVER_INSTANCE_ID, {
         itemDrafts: {},
         storeDraft: 'Trader Joe’s',
       }),
-    ).toEqual({ expectedUpdatedAt: '2026-10-17T12:05:00.000Z' });
+    ).toEqual({
+      serverInstanceId: SERVER_INSTANCE_ID,
+      expectedUpdatedAt: '2026-10-17T12:05:00.000Z',
+    });
   });
 });
 

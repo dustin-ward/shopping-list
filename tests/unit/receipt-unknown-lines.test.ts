@@ -16,6 +16,7 @@ function row(
     Pick<UnknownLineRow, 'lineId' | 'rawText'>,
 ): UnknownLineRow {
   return {
+    parsedName: null,
     totalPriceMinor: null,
     quantityReal: null,
     unitPriceMinor: null,
@@ -48,6 +49,22 @@ describe('groupUnknownLines', () => {
       'mystery item',
       'something else',
     ]);
+  });
+
+  it('keeps the matcher phrase separate from the printed grouping text', () => {
+    const groups = groupUnknownLines([
+      row({
+        lineId: 'line-a',
+        rawText: 'CUCUMBERS 2 @ 1.50',
+        parsedName: 'CUCUMBERS',
+      }),
+    ]);
+
+    expect(groups[0]).toMatchObject({
+      normalizedText: 'cucumbers 2 @ 1.50',
+      printedText: 'CUCUMBERS 2 @ 1.50',
+      matchingPhrase: 'CUCUMBERS',
+    });
   });
 
   it('normalizes the way aliases and item names do (case, spacing, NFKC)', () => {

@@ -171,7 +171,7 @@ describe('ReceiptUnknowns — binding a whole wording', () => {
     });
 
     expect(body).toContain(
-      'Bind 3 lines to Milk? Matching will learn "MYSTERY ITEM" for Milk.',
+      'Bind 3 lines to Milk? Matching will learn the item-name phrase from "MYSTERY ITEM" for Milk.',
     );
     expect(body).toContain('Bind 3 lines');
     expect(body).toContain('Cancel');

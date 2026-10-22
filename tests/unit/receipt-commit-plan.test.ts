@@ -18,6 +18,7 @@ function line(overrides: Partial<CommittableLine> = {}): CommittableLine {
   return {
     id: '00000000-0000-4000-8000-000000000001',
     rawText: 'MILK 2% 1L',
+    parsedName: null,
     isItemChunk: true,
     reviewState: 'bound',
     catalogItemId: MILK_ID,
@@ -295,6 +296,24 @@ describe('planReceiptCommit — alias learning', () => {
         item: { kind: 'new', normalizedName: 'sourdough loaf' },
         aliasText: 'SOURDOUGH BREAD',
         normalizedAlias: 'sourdough bread',
+      },
+    ]);
+  });
+
+  it('learns the phrase the matcher reads, not the printed quantity', () => {
+    const cucumbers = line({
+      rawText: 'CUCUMBERS 2 @ 1.50',
+      parsedName: 'CUCUMBERS',
+    });
+
+    const result = plan({ lines: [cucumbers] });
+
+    expect(result.aliases).toEqual([
+      {
+        lineId: cucumbers.id,
+        item: { kind: 'existing', id: MILK_ID },
+        aliasText: 'CUCUMBERS',
+        normalizedAlias: 'cucumbers',
       },
     ]);
   });

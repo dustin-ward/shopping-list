@@ -14,11 +14,13 @@ import type {
   ReceiptReviewState,
 } from '../../shared/schemas';
 import { reviewStateKeepsBinding } from '../../shared/receipt-review';
+import { readQuantity } from './quantity';
 
 /** The editable columns of one stored line, as the service reads them. */
 export type EditableLine = Pick<
   ReceiptLine,
   | 'rawText'
+  | 'parsedName'
   | 'quantityReal'
   | 'quantityText'
   | 'quantityUnit'
@@ -92,8 +94,15 @@ function mergeFields(
   line: EditableLine,
   patch: ReceiptLinePatch,
 ): EditableLine {
+  const rawText = patch.rawText ?? line.rawText;
+  const parsedName =
+    patch.rawText === undefined
+      ? line.parsedName
+      : parsedNameFromReviewedText(rawText);
+
   return {
-    rawText: patch.rawText ?? line.rawText,
+    rawText,
+    parsedName,
     quantityReal: keep(patch.quantityReal, line.quantityReal),
     quantityText: keep(patch.quantityText, line.quantityText),
     quantityUnit: keep(patch.quantityUnit, line.quantityUnit),
@@ -104,6 +113,12 @@ function mergeFields(
     boundVia: keep(patch.boundVia, line.boundVia),
     boundRank: keep(patch.boundRank, line.boundRank),
   };
+}
+
+/** Keep the matcher phrase derived from the text the reviewer now sees. */
+function parsedNameFromReviewedText(rawText: string): string | null {
+  const quantity = readQuantity(rawText);
+  return quantity ? quantity.name || null : rawText || null;
 }
 
 /** An omitted field keeps its stored value; an explicit `null` clears it. */

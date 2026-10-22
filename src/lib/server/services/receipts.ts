@@ -14,6 +14,7 @@ import {
   type ReceiptStatus,
   type RepairReceiptInput,
   type ReparseReceiptInput,
+  type ServerInstanceMutationInput,
   type UpdateReceiptInput,
 } from '../../shared/schemas';
 import { getConfig } from '../config.js';
@@ -49,6 +50,7 @@ import { resolveLineEdit, type EditableLine } from '../receipts/review-edits';
 import { bindTierOneMatches, loadMatchContext } from './receipt-matching';
 import {
   assertReceiptUpdatedAt,
+  assertServerInstance,
   bumpSnapshotRevision,
   currentListId,
   getLiveGroup,
@@ -84,6 +86,7 @@ export async function acceptReceiptUpload(
   database: SqliteDatabase = getRawDatabase(),
   storageDir: string = getConfig().receiptStorageDir,
 ): Promise<ReceiptUploadResult> {
+  assertServerInstance(request.headers.get('x-server-instance-id') ?? '');
   const part = await readMultipartFilePart(request, {
     tempDir: storageDir,
     maxBytes: MAX_RECEIPT_IMAGE_BYTES,
@@ -481,6 +484,7 @@ export function updateReceipt(
   database: SqliteDatabase = getRawDatabase(),
   config = getConfig(),
 ): ReceiptDetail {
+  assertServerInstance(input.serverInstanceId);
   const listId = currentListId(database);
 
   return runWriteTransaction(database, () => {
@@ -528,7 +532,7 @@ export function updateReceipt(
     for (const linePatch of input.lines ?? []) {
       const lineRow = database
         .prepare(
-          `SELECT id, raw_text, quantity_real, quantity_text, quantity_unit,
+          `SELECT id, raw_text, parsed_name, quantity_real, quantity_text, quantity_unit,
                   unit_price_minor, total_price_minor, review_state,
                   catalog_item_id, bound_via, bound_rank, is_item_chunk
              FROM receipt_lines
@@ -550,7 +554,7 @@ export function updateReceipt(
       database
         .prepare(
           `UPDATE receipt_lines
-              SET raw_text = ?, quantity_real = ?, quantity_text = ?,
+              SET raw_text = ?, parsed_name = ?, quantity_real = ?, quantity_text = ?,
                   quantity_unit = ?, unit_price_minor = ?, total_price_minor = ?,
                   review_state = ?, catalog_item_id = ?, bound_via = ?,
                   bound_rank = ?, updated_at = ?
@@ -558,6 +562,7 @@ export function updateReceipt(
         )
         .run(
           resolved.rawText,
+          resolved.parsedName,
           resolved.quantityReal,
           resolved.quantityText,
           resolved.quantityUnit,
@@ -604,6 +609,7 @@ export async function reparseReceiptWithHelper(
   input: ReparseReceiptInput,
   options: { database?: SqliteDatabase; engine?: HelperEngine } = {},
 ): Promise<ReceiptDetail> {
+  assertServerInstance(input.serverInstanceId);
   const database = options.database ?? getRawDatabase();
   const config = getConfig();
   const engine = options.engine ?? helperEngineForConfig(config);
@@ -719,6 +725,7 @@ function applyReceiptFields(
 /** One stored line as it comes out of SQLite, before it is resolved. */
 type EditableLineRow = {
   raw_text: string;
+  parsed_name: string | null;
   quantity_real: number | null;
   quantity_text: string | null;
   quantity_unit: EditableLine['quantityUnit'];
@@ -734,6 +741,7 @@ type EditableLineRow = {
 function toEditableLine(row: EditableLineRow): EditableLine {
   return {
     rawText: row.raw_text,
+    parsedName: row.parsed_name,
     quantityReal: row.quantity_real,
     quantityText: row.quantity_text,
     quantityUnit: row.quantity_unit,
@@ -781,6 +789,7 @@ export function commitReceipt(
   input: CommitReceiptInput,
   database: SqliteDatabase = getRawDatabase(),
 ): ReceiptDetail {
+  assertServerInstance(input.serverInstanceId);
   const listId = currentListId(database);
 
   return runWriteTransaction(database, () => {
@@ -1031,6 +1040,7 @@ export function learnAlias(
 type CommittableLineRow = {
   id: string;
   raw_text: string;
+  parsed_name: string | null;
   is_item_chunk: number;
   review_state: ReceiptLine['reviewState'];
   catalog_item_id: string | null;
@@ -1043,7 +1053,8 @@ function loadCommittableLines(
 ): CommittableLine[] {
   const rows = database
     .prepare(
-      `SELECT id, raw_text, is_item_chunk, review_state, catalog_item_id
+      `SELECT id, raw_text, parsed_name, is_item_chunk, review_state,
+              catalog_item_id
          FROM receipt_lines
         WHERE receipt_id = ?
         ORDER BY line_index, id`,
@@ -1053,6 +1064,7 @@ function loadCommittableLines(
   return rows.map((row) => ({
     id: row.id,
     rawText: row.raw_text,
+    parsedName: row.parsed_name,
     isItemChunk: Boolean(row.is_item_chunk),
     reviewState: row.review_state,
     catalogItemId: row.catalog_item_id,
@@ -1074,9 +1086,11 @@ function loadCommittableLines(
  */
 export function discardReceipt(
   receiptId: string,
+  input: ServerInstanceMutationInput,
   database: SqliteDatabase = getRawDatabase(),
   storageDir: string = getConfig().receiptStorageDir,
 ): ReceiptDetail {
+  assertServerInstance(input.serverInstanceId);
   const listId = currentListId(database);
 
   const purge = runWriteTransaction(database, () => {
@@ -1140,6 +1154,7 @@ export function repairReceipt(
   input: RepairReceiptInput,
   database: SqliteDatabase = getRawDatabase(),
 ): ReceiptDetail {
+  assertServerInstance(input.serverInstanceId);
   const listId = currentListId(database);
 
   return runWriteTransaction(database, () => {
@@ -1164,7 +1179,7 @@ export function repairReceipt(
     for (const patch of input.lines) {
       const lineRow = database
         .prepare(
-          `SELECT id, raw_text, quantity_real, quantity_text, quantity_unit,
+          `SELECT id, raw_text, parsed_name, quantity_real, quantity_text, quantity_unit,
                   unit_price_minor, total_price_minor, review_state,
                   catalog_item_id, bound_via, bound_rank, is_item_chunk
              FROM receipt_lines

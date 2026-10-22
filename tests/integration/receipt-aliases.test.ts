@@ -7,6 +7,7 @@ import { handle } from '../../src/hooks.server';
 import { closeDatabase } from '../../src/lib/server/db/connection';
 import { migrateAndBootstrap } from '../../src/lib/server/db/lifecycle.js';
 import { openSqliteDatabase } from '../../src/lib/server/db/sqlite.js';
+import { getServerInstanceId } from '../../src/lib/server/instance';
 import {
   getReceiptDetail,
   writeReceiptParse,
@@ -179,14 +180,14 @@ function insertReceipt(overrides: Record<string, unknown> = {}): string {
 }
 
 /** One parsed item line, the way the worker hands a parse to the service. */
-function parsedReceipt(rawText: string): ParsedReceipt {
+function parsedReceipt(rawText: string, parsedName = rawText): ParsedReceipt {
   return {
     parseVersion: 1,
     lines: [
       {
         sourceLineIndexes: [0],
         rawText,
-        parsedName: rawText,
+        parsedName,
         quantityReal: null,
         quantityText: null,
         quantityUnit: null,
@@ -205,11 +206,16 @@ function parsedReceipt(rawText: string): ParsedReceipt {
 }
 
 /** Parse one line onto a fresh receipt, i.e. what the worker's tick writes. */
-function parseLine(rawText: string): string {
+function parseLine(rawText: string, parsedName = rawText): string {
   const receiptId = insertReceipt();
   const database = openDatabase();
   try {
-    writeReceiptParse(database, receiptId, parsedReceipt(rawText), 'USD');
+    writeReceiptParse(
+      database,
+      receiptId,
+      parsedReceipt(rawText, parsedName),
+      'USD',
+    );
   } finally {
     database.close();
   }
@@ -244,13 +250,16 @@ async function overview(): Promise<
   return aliasOverviewSchema.parse(await response.json());
 }
 
-function softDelete(aliasId: string): Promise<Response> {
+function softDelete(
+  aliasId: string,
+  serverInstanceId = getServerInstanceId(),
+): Promise<Response> {
   return submit(
     deleteAliasRoute,
     new Request(`${origin}/api/aliases/${aliasId}/delete`, {
       method: 'POST',
       headers: { host, origin, 'content-type': 'application/json' },
-      body: '{}',
+      body: JSON.stringify({ serverInstanceId }),
     }),
     { id: aliasId },
   );
@@ -263,6 +272,7 @@ function commitReceipt(receiptId: string): Promise<Response> {
       method: 'POST',
       headers: { host, origin, 'content-type': 'application/json' },
       body: JSON.stringify({
+        serverInstanceId: getServerInstanceId(),
         expectedUpdatedAt: '2026-10-17T12:00:00.000Z',
       }),
     }),
@@ -388,6 +398,48 @@ describe('deleting and relearning an alias', () => {
       boundVia: 'auto',
     });
   });
+
+  it('learns the matcher phrase from a quantity-bearing committed line', async () => {
+    const receiptId = insertReceipt();
+    const lineId = randomUUID();
+    const database = openDatabase();
+    try {
+      database
+        .prepare(
+          `INSERT INTO receipt_lines
+             (id, receipt_id, line_index, raw_text, parsed_name, is_item_chunk,
+              review_state, catalog_item_id, bound_via, created_at, updated_at)
+           VALUES (?, ?, 0, 'CUCUMBERS 2 @ 1.50', 'CUCUMBERS', 1, 'bound',
+                   ?, 'manual', '2026-10-17T12:00:00.000Z',
+                   '2026-10-17T12:00:00.000Z')`,
+        )
+        .run(lineId, receiptId, milkId);
+    } finally {
+      database.close();
+    }
+
+    const committed = await commitReceipt(receiptId);
+
+    expect(committed.status).toBe(200);
+    expect(
+      one<Row>(
+        `SELECT alias_text, normalized_alias, source
+           FROM item_aliases WHERE created_by_receipt_line_id = ?`,
+        lineId,
+      ),
+    ).toMatchObject({
+      alias_text: 'CUCUMBERS',
+      normalized_alias: 'cucumbers',
+      source: 'review',
+    });
+
+    const nextReceipt = parseLine('CUCUMBERS 3 @ 1.50', 'CUCUMBERS');
+    expect(lineOf(nextReceipt)).toMatchObject({
+      catalogItemId: milkId,
+      reviewState: 'bound',
+      boundVia: 'auto',
+    });
+  });
 });
 
 describe('a phrase two items claim', () => {
@@ -486,6 +538,25 @@ describe('POST /api/aliases/[id]/delete', () => {
         aliasId,
       ).deleted_at,
     ).toBe(first);
+  });
+
+  it('refuses an alias delete from a different server instance', async () => {
+    const aliasId = insertAlias({ aliasText: 'MILK 1GAL' });
+    const beforeRevision = revision();
+
+    const response = await softDelete(aliasId, randomUUID());
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'SERVER_CHANGED' },
+    });
+    expect(
+      one<{ deleted_at: string | null }>(
+        'SELECT deleted_at FROM item_aliases WHERE id = ?',
+        aliasId,
+      ).deleted_at,
+    ).toBeNull();
+    expect(revision()).toBe(beforeRevision);
   });
 
   it('refuses an unknown alias without writing anything', async () => {

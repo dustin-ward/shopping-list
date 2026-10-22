@@ -20,6 +20,7 @@ function line(overrides: Partial<RepairableLine> = {}): RepairableLine {
   return {
     id: LINE_ID,
     rawText: 'MILK 2% 1L',
+    parsedName: 'MILK 2% 1L',
     quantityReal: null,
     quantityText: null,
     quantityUnit: null,
@@ -54,6 +55,19 @@ describe('planLineRepair', () => {
         aliasText: 'MILK 2% 1L',
         normalizedAlias: 'milk 2% 1l',
       },
+    });
+  });
+
+  it('learns the phrase matching will read from a quantity-bearing repaired line', () => {
+    const repair = planLineRepair(
+      line({ rawText: 'CUCUMBERS 2 @ 1.50', parsedName: 'CUCUMBERS' }),
+      { catalogItemId: NEW_ITEM },
+      TAUGHT,
+    );
+
+    expect(repair.learnAlias).toEqual({
+      aliasText: 'CUCUMBERS',
+      normalizedAlias: 'cucumbers',
     });
   });
 
@@ -138,7 +152,11 @@ describe('planLineRepair', () => {
   });
 
   it('has nothing to teach when the printed text carries no words', () => {
-    const repair = planLineRepair(line({ rawText: '   ' }), {}, []);
+    const repair = planLineRepair(
+      line({ rawText: '   ', parsedName: null }),
+      {},
+      [],
+    );
 
     expect(repair.learnAlias).toBeNull();
     // The line itself is untouched: a repair that changed nothing still says

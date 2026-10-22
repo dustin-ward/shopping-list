@@ -21,11 +21,13 @@
 
 import { normalizeName } from '../../shared/normalize';
 import type { UnknownLinesOverview } from '../../shared/schemas';
+import { phraseForLine } from './matcher';
 
 /** One stored unknown line, as the grouping reads it. */
 export type UnknownLineRow = {
   lineId: string;
   rawText: string;
+  parsedName: string | null;
   totalPriceMinor: number | null;
   quantityReal: number | null;
   unitPriceMinor: number | null;
@@ -39,6 +41,8 @@ export type UnknownLineRow = {
 export type UnknownLineGrouping = {
   normalizedText: string;
   printedText: string;
+  /** The phrase matching reads for the representative line. */
+  matchingPhrase: string;
   lineCount: number;
   receiptCount: number;
   spendMinor: number;
@@ -68,6 +72,7 @@ export function groupUnknownLines(
       byText.set(normalizedText, {
         normalizedText,
         printedText: row.rawText.trim(),
+        matchingPhrase: phraseForLine(row).trim(),
         lineCount: 1,
         receiptCount: 1,
         spendMinor,

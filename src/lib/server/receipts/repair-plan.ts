@@ -13,9 +13,9 @@
  *   deletion keeps it queryable as audit (`ADR 0003`), and an alias another line
  *   or a human confirmed is left alone — so a genuine conflict still stops
  *   matching from auto-binding instead of retargeting it in silence.
- * - **The repaired binding teaches its printed text**, exactly as a commit does,
- *   which is what makes the correction stick: the next receipt printing this
- *   wording binds where the reviewer said it belongs.
+ * - **The repaired binding teaches its matching phrase**, exactly as a commit does,
+ *   which is what makes the correction stick: the next receipt whose matcher
+ *   phrase is the same binds where the reviewer said it belongs.
  *
  * A repair never decides anything about `raw_text`, `display_name`, `ocr_json`
  * or the image: only the binding moves.
@@ -23,6 +23,7 @@
 
 import type { RepairLinePatch, ReceiptLine } from '../../shared/schemas';
 import { normalizeName } from '../../shared/normalize';
+import { phraseForLine } from './matcher';
 import { resolveLineEdit, type EditableLine } from './review-edits';
 
 /** A stored line as repair reads it: the editable fields, plus the id to write back. */
@@ -57,7 +58,7 @@ export function planLineRepair(
   aliases: readonly LineAlias[],
 ): LineRepair {
   const resolved = resolveLineEdit(line, patch);
-  const aliasText = line.rawText.trim();
+  const aliasText = phraseForLine(resolved).trim();
   const normalizedAlias = normalizeName(aliasText);
 
   return {

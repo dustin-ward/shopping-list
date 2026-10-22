@@ -128,8 +128,14 @@ describe('repairReceiptInput', () => {
     };
 
     expect(
-      repairReceiptInput(detail, LINE_ID, { reviewState: 'unknown' }),
+      repairReceiptInput(
+        detail,
+        '00000000-0000-4000-8000-0000000000ff',
+        LINE_ID,
+        { reviewState: 'unknown' },
+      ),
     ).toEqual({
+      serverInstanceId: '00000000-0000-4000-8000-0000000000ff',
       expectedUpdatedAt: '2026-10-17T12:06:00.000Z',
       lines: [{ id: LINE_ID, reviewState: 'unknown' }],
     });

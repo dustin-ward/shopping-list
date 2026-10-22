@@ -1821,6 +1821,7 @@
   {:else if screen === 'receipts'}
     <ReceiptsTab
       writable={canWrite}
+      serverInstanceId={snapshot.serverInstanceId}
       helperEnabled={receiptHelperEnabled}
       catalogItems={snapshot.catalogItems}
       groups={snapshot.groups}

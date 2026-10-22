@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -5,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { closeDatabase } from '../../src/lib/server/db/connection';
 import { migrateAndBootstrap } from '../../src/lib/server/db/lifecycle.js';
 import { openSqliteDatabase } from '../../src/lib/server/db/sqlite.js';
+import { getServerInstanceId } from '../../src/lib/server/instance';
 import { handle } from '../../src/hooks.server';
 import { POST } from '../../src/routes/api/receipts/+server';
 
@@ -39,10 +41,15 @@ function jpeg(): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-function uploadRequest(options: { origin?: string | null } = {}): Request {
+function uploadRequest(
+  options: { origin?: string | null; serverInstanceId?: string } = {},
+): Request {
   const body = new FormData();
   body.set('image', new Blob([jpeg()], { type: 'image/jpeg' }), 'receipt.jpg');
-  const headers = new Headers({ host });
+  const headers = new Headers({
+    host,
+    'x-server-instance-id': options.serverInstanceId ?? getServerInstanceId(),
+  });
   const requestOrigin = options.origin === undefined ? origin : options.origin;
   if (requestOrigin !== null) headers.set('origin', requestOrigin);
   return new Request(`${origin}/api/receipts`, {
@@ -83,6 +90,17 @@ describe('POST /api/receipts', () => {
       id: first.id,
       status: 'pending',
       alreadyCaptured: true,
+    });
+  });
+
+  it('refuses an upload from a different server instance', async () => {
+    const response = await submit(
+      uploadRequest({ serverInstanceId: randomUUID() }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'SERVER_CHANGED' },
     });
   });
 

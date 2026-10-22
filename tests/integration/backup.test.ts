@@ -126,6 +126,7 @@ function receiptUploadRequest(bytes: Buffer): Request {
   return new Request('http://localhost:5173/api/receipts', {
     method: 'POST',
     body,
+    headers: { 'x-server-instance-id': getServerInstanceId() },
   });
 }
 

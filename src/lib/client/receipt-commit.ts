@@ -86,19 +86,22 @@ export function commitItemDrafts(
 }
 
 /**
- * The commit request: the reviewer's drafts plus the `updatedAt` the editor last
- * saw, the same guard every review edit carries. A chosen group and a drafted
- * name are two spellings of one answer, so the group wins if both somehow stand
- * — the server refuses the pair rather than guess.
+ * The commit request: the instance guard from the page's verified snapshot, the
+ * reviewer's drafts, and the `updatedAt` the editor last saw — the same guard
+ * every review edit carries. A chosen group and a drafted name are two
+ * spellings of one answer, so the group wins if both somehow stand — the server
+ * refuses the pair rather than guess.
  */
 export function commitReceiptInput(
   detail: CommittableReceipt & Pick<ReceiptDetail, 'id' | 'updatedAt'>,
+  serverInstanceId: string,
   drafts: CommitDrafts,
 ): CommitReceiptInput {
   const itemDrafts = commitItemDrafts(detail.lines, drafts.itemDrafts);
   const storeDraft = detail.storeGroupId ? '' : drafts.storeDraft.trim();
 
   return {
+    serverInstanceId,
     expectedUpdatedAt: detail.updatedAt,
     ...(itemDrafts.length ? { itemDrafts } : {}),
     ...(storeDraft ? { storeDraft } : {}),
@@ -117,15 +120,16 @@ export function submitReceiptCommit(
 }
 
 /**
- * Discard one receipt. The payload is an empty object on purpose: the route
- * takes no input, and the server hook only lets a JSON content type through.
+ * Discard one receipt, carrying the instance guard from the page's verified
+ * snapshot. The receipt id remains the route's target.
  */
 export function submitReceiptDiscard(
   receiptId: string,
+  serverInstanceId: string,
 ): Promise<ReceiptDetail> {
   return requestJson<ReceiptDetail>(`/api/receipts/${receiptId}/discard`, {
     method: 'POST',
-    body: {},
+    body: { serverInstanceId },
   });
 }
 

@@ -7,6 +7,7 @@ import { handle } from '../../src/hooks.server';
 import { closeDatabase } from '../../src/lib/server/db/connection';
 import { migrateAndBootstrap } from '../../src/lib/server/db/lifecycle.js';
 import { openSqliteDatabase } from '../../src/lib/server/db/sqlite.js';
+import { getServerInstanceId } from '../../src/lib/server/instance';
 import type { ParsedReceipt } from '../../src/lib/server/receipts/parser';
 import {
   getReceiptDetail,
@@ -162,6 +163,7 @@ function insertLine(
   receiptId: string,
   options: {
     rawText: string;
+    parsedName?: string | null;
     totalPriceMinor?: number | null;
     quantityReal?: number | null;
     unitPriceMinor?: number | null;
@@ -177,15 +179,16 @@ function insertLine(
     database
       .prepare(
         `INSERT INTO receipt_lines
-           (id, receipt_id, line_index, raw_text, is_item_chunk, total_price_minor,
+           (id, receipt_id, line_index, raw_text, parsed_name, is_item_chunk, total_price_minor,
             quantity_real, unit_price_minor, catalog_item_id, review_state)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
         receiptId,
         options.lineIndex ?? 0,
         options.rawText,
+        options.parsedName ?? null,
         (options.isItemChunk ?? true) ? 1 : 0,
         options.totalPriceMinor ?? null,
         options.quantityReal ?? null,
@@ -237,26 +240,27 @@ async function overview(): Promise<
 function bind(
   normalizedText: string,
   catalogItemId: string,
+  serverInstanceId = getServerInstanceId(),
 ): Promise<Response> {
   return submit(
     bindRoute,
     new Request(`${origin}/api/unknown-lines/bind`, {
       method: 'POST',
       headers: { host, origin, 'content-type': 'application/json' },
-      body: JSON.stringify({ normalizedText, catalogItemId }),
+      body: JSON.stringify({ serverInstanceId, normalizedText, catalogItemId }),
     }),
   );
 }
 
 /** One parsed item line, the way the worker hands a parse to the service. */
-function parsedReceipt(rawText: string): ParsedReceipt {
+function parsedReceipt(rawText: string, parsedName = rawText): ParsedReceipt {
   return {
     parseVersion: 1,
     lines: [
       {
         sourceLineIndexes: [0],
         rawText,
-        parsedName: rawText,
+        parsedName,
         quantityReal: null,
         quantityText: null,
         quantityUnit: null,
@@ -275,10 +279,15 @@ function parsedReceipt(rawText: string): ParsedReceipt {
 }
 
 /** Parse one line onto a fresh review receipt, i.e. what the worker's tick writes. */
-function parseLine(rawText: string): string {
+function parseLine(rawText: string, parsedName = rawText): string {
   const receiptId = insertReceipt({ status: 'review' });
   useDatabase((database) =>
-    writeReceiptParse(database, receiptId, parsedReceipt(rawText), 'USD'),
+    writeReceiptParse(
+      database,
+      receiptId,
+      parsedReceipt(rawText, parsedName),
+      'USD',
+    ),
   );
   return receiptId;
 }
@@ -547,6 +556,37 @@ describe('POST /api/unknown-lines/bind', () => {
     });
   });
 
+  it('learns the matcher phrase from a quantity-bearing unknown group', async () => {
+    const receipt = insertReceipt();
+    const line = insertLine(receipt, {
+      rawText: 'CUCUMBERS 2 @ 1.50',
+      parsedName: 'CUCUMBERS',
+      totalPriceMinor: 300,
+    });
+
+    const response = await bind('CUCUMBERS 2 @ 1.50', milkId);
+
+    expect(response.status).toBe(200);
+    expect(
+      one<Row>(
+        `SELECT alias_text, normalized_alias, created_by_receipt_line_id
+           FROM item_aliases WHERE catalog_item_id = ?`,
+        milkId,
+      ),
+    ).toMatchObject({
+      alias_text: 'CUCUMBERS',
+      normalized_alias: 'cucumbers',
+      created_by_receipt_line_id: line,
+    });
+
+    const nextReceipt = parseLine('CUCUMBERS 3 @ 1.50', 'CUCUMBERS');
+    expect(getReceiptDetail(nextReceipt).lines[0]).toMatchObject({
+      catalogItemId: milkId,
+      reviewState: 'bound',
+      boundVia: 'auto',
+    });
+  });
+
   it('binds only what is still unknown, and reports what actually moved', async () => {
     const receipt = insertReceipt();
     const line = insertLine(receipt, {
@@ -578,6 +618,31 @@ describe('POST /api/unknown-lines/bind', () => {
       one<{ count: number }>('SELECT COUNT(*) AS count FROM item_aliases')
         .count,
     ).toBe(0);
+  });
+
+  it('refuses a batch bind from a different server instance before writing', async () => {
+    const receipt = insertReceipt();
+    const line = insertLine(receipt, {
+      rawText: 'MYSTERY ITEM',
+      reviewState: 'unknown',
+    });
+    const beforeReceipt = receiptUpdatedAt(receipt);
+    const beforeRevision = revision();
+
+    const response = await bind('MYSTERY ITEM', milkId, randomUUID());
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'SERVER_CHANGED' },
+    });
+    expect(
+      one<Row>(
+        'SELECT review_state, catalog_item_id FROM receipt_lines WHERE id = ?',
+        line,
+      ),
+    ).toMatchObject({ review_state: 'unknown', catalog_item_id: null });
+    expect(receiptUpdatedAt(receipt)).toBe(beforeReceipt);
+    expect(revision()).toBe(beforeRevision);
   });
 
   it('refuses an item that is not in this list, writing nothing', async () => {

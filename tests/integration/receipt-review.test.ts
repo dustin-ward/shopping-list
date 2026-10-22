@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { closeDatabase } from '../../src/lib/server/db/connection';
 import { migrateAndBootstrap } from '../../src/lib/server/db/lifecycle.js';
 import { openSqliteDatabase } from '../../src/lib/server/db/sqlite.js';
+import { getServerInstanceId } from '../../src/lib/server/instance';
 import { receiptDetailSchema } from '../../src/lib/shared/schemas';
 import { GET as detailRoute } from '../../src/routes/api/receipts/[id]/+server';
 import {
@@ -151,13 +152,17 @@ function insertReviewableReceipt(overrides: Record<string, unknown> = {}) {
 
 function patchEvent(id: string, body: unknown): PatchEvent {
   const url = new URL(`${origin}/api/receipts/${id}`);
+  const requestBody =
+    body && typeof body === 'object' && !Array.isArray(body)
+      ? { serverInstanceId: getServerInstanceId(), ...body }
+      : body;
   return {
     url,
     params: { id },
     request: new Request(url, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(requestBody),
     }),
   } as unknown as PatchEvent;
 }
@@ -305,6 +310,25 @@ describe('PATCH /api/receipts/[id] — review states', () => {
     });
     expect(lineRow(itemLineId).review_state).toBe('unreviewed');
   });
+
+  it('refuses an edit from a different server instance before writing', async () => {
+    const { id, itemLineId } = insertReviewableReceipt();
+    const beforeReceipt = receiptRow(id);
+    const beforeLine = lineRow(itemLineId);
+
+    const response = await patch(id, {
+      serverInstanceId: randomUUID(),
+      expectedUpdatedAt: '2026-10-17T12:00:00.000Z',
+      lines: [{ id: itemLineId, reviewState: 'unknown' }],
+    });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'SERVER_CHANGED' },
+    });
+    expect(receiptRow(id)).toEqual(beforeReceipt);
+    expect(lineRow(itemLineId)).toEqual(beforeLine);
+  });
 });
 
 describe('PATCH /api/receipts/[id] — line edits', () => {
@@ -330,6 +354,7 @@ describe('PATCH /api/receipts/[id] — line edits', () => {
     const detail = receiptDetailSchema.parse(await response.json());
     expect(detail.lines[0]).toMatchObject({
       rawText: 'MILK 2% 2L',
+      parsedName: 'MILK 2% 2L',
       quantityReal: 2,
       quantityText: '2 @ 2.00',
       quantityUnit: 'ea',
@@ -341,10 +366,31 @@ describe('PATCH /api/receipts/[id] — line edits', () => {
     expect(receiptRow(id).ocr_json).toContain('MILK 2% 1L');
     expect(lineRow(itemLineId)).toMatchObject({
       raw_text: 'MILK 2% 2L',
+      parsed_name: 'MILK 2% 2L',
       quantity_real: 2,
       quantity_unit: 'ea',
       unit_price_minor: 200,
       total_price_minor: 400,
+    });
+  });
+
+  it('re-derives the matcher phrase when edited text carries a quantity', async () => {
+    const { id, itemLineId } = insertReviewableReceipt();
+
+    const response = await patch(id, {
+      expectedUpdatedAt: '2026-10-17T12:00:00.000Z',
+      lines: [{ id: itemLineId, rawText: 'CUCUMBERS 2 @ 1.50' }],
+    });
+
+    expect(response.status).toBe(200);
+    const detail = receiptDetailSchema.parse(await response.json());
+    expect(detail.lines[0]).toMatchObject({
+      rawText: 'CUCUMBERS 2 @ 1.50',
+      parsedName: 'CUCUMBERS',
+    });
+    expect(lineRow(itemLineId)).toMatchObject({
+      raw_text: 'CUCUMBERS 2 @ 1.50',
+      parsed_name: 'CUCUMBERS',
     });
   });
 

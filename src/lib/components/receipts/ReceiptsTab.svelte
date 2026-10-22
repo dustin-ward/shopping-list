@@ -48,6 +48,7 @@
   // item search and store picker read the list the snapshot already carries.
   let {
     writable = false,
+    serverInstanceId = '',
     helperEnabled = false,
     catalogItems = [],
     groups = [],
@@ -55,6 +56,8 @@
     onReceiptOpened = () => {},
   }: {
     writable?: boolean;
+    /** The page's verified server instance: every mutation carries it. */
+    serverInstanceId?: string;
     /** `RECEIPT_HELPER_URL` configured: the review editor may offer a re-parse. */
     helperEnabled?: boolean;
     catalogItems?: readonly CatalogItemOption[];
@@ -231,6 +234,7 @@
       const prepared = await prepareReceiptImage(file);
       captureStatus = 'Uploading the receipt…';
       const result = await uploadReceipt(prepared.blob, {
+        serverInstanceId,
         onProgress: (fraction) => {
           captureProgress = Math.round(fraction * 100);
         },
@@ -386,7 +390,7 @@
     try {
       // The server answers with the fresh overview, so a resolved ambiguity and
       // the deleted row both appear without a second round trip.
-      aliasOverview = await submitAliasDelete(aliasId);
+      aliasOverview = await submitAliasDelete(aliasId, serverInstanceId);
       aliasNotice =
         'Alias deleted — matching will no longer auto-bind that wording.';
     } catch (error) {
@@ -461,6 +465,7 @@
       const result = await submitUnknownBind(
         group.normalizedText,
         catalogItemId,
+        serverInstanceId,
       );
       unknownOverview = result.overview;
       const itemName =
@@ -665,6 +670,7 @@
         <ReceiptReviewEditor
           {detail}
           {writable}
+          {serverInstanceId}
           {helperEnabled}
           {catalogItems}
           {groups}

@@ -35,6 +35,9 @@ const uniqueGroupIdsSchema = z
 
 const mutationBaseSchema = z.object({ serverInstanceId: uuidSchema });
 
+/** Payload for a write whose target is fully named by its route. */
+export const serverInstanceMutationSchema = mutationBaseSchema.strict();
+
 export const addEntrySchema = mutationBaseSchema
   .extend({
     id: uuidSchema,
@@ -376,13 +379,21 @@ export const aliasOverviewSchema = z.object({
 });
 
 /**
+ * `POST /api/aliases/[id]/delete`: soft-delete one learned alias. The alias id
+ * is the whole target, so the instance guard is the whole payload — a delete
+ * from a client that has not verified this server must refresh first.
+ */
+export const deleteAliasSchema = serverInstanceMutationSchema;
+
+/**
  * One wording the household could not identify (ticket 17; plan §13 "R2 —
  * matching maturity": the unknown-line grouped browser). Every committed item
  * line the reviewer marked unknown whose printed text normalizes the same joins
  * one group, so the group's count and money are the unidentified spending for
  * that wording — and binding the wording resolves every constituent line.
- * `printedText` is the most recently committed printing, which is the wording
- * shown and the one an alias is learned from.
+ * `printedText` is the most recently committed printing shown in the group. A
+ * bind learns the matching phrase for that line (the parser's name when it has
+ * one), which can omit quantity details from the full printed row.
  */
 export const unknownLineGroupSchema = z.object({
   normalizedText: z.string(),
@@ -407,8 +418,8 @@ export const unknownLinesOverviewSchema = z.object({
  * The empty string names the group of lines with no printed wording; those
  * lines bind but teach no alias.
  */
-export const unknownLinesBindSchema = z
-  .object({
+export const unknownLinesBindSchema = mutationBaseSchema
+  .extend({
     normalizedText: z.string().trim().max(300),
     catalogItemId: uuidSchema,
   })
@@ -681,8 +692,8 @@ export const receiptLineEditSchema = z
   .strict();
 
 /** `PATCH /api/receipts/[id]`: the review edits, guarded by `updated_at`. */
-export const updateReceiptSchema = z
-  .object({
+export const updateReceiptSchema = mutationBaseSchema
+  .extend({
     /** The receipt's `updatedAt` the editor last saw. */
     expectedUpdatedAt: z.string().trim().min(1).max(40),
     lines: z
@@ -711,8 +722,8 @@ export const updateReceiptSchema = z
  * `updatedAt` the reviewer last saw, like every other review write, because the
  * replacement discards any lines edits made since.
  */
-export const reparseReceiptSchema = z
-  .object({
+export const reparseReceiptSchema = mutationBaseSchema
+  .extend({
     expectedUpdatedAt: z.string().trim().min(1).max(40),
   })
   .strict();
@@ -726,8 +737,8 @@ export const reparseReceiptSchema = z
  * created before commit) and a drafted store name (which stands in place of a
  * chosen group — one of the two can be set, never both).
  */
-export const commitReceiptSchema = z
-  .object({
+export const commitReceiptSchema = mutationBaseSchema
+  .extend({
     expectedUpdatedAt: z.string().trim().min(1).max(40),
     itemDrafts: z
       .array(z.object({ lineId: uuidSchema, name: itemNameSchema }).strict())
@@ -790,8 +801,8 @@ export const receiptRepairLineSchema = z
  * stays review-only). Guarded by the receipt's `updated_at`, the same guard
  * every review write carries.
  */
-export const repairReceiptSchema = z
-  .object({
+export const repairReceiptSchema = mutationBaseSchema
+  .extend({
     expectedUpdatedAt: z.string().trim().min(1).max(40),
     lines: z
       .array(receiptRepairLineSchema)
@@ -824,6 +835,9 @@ export type CreateGroupInput = z.input<typeof createGroupSchema>;
 export type RenameGroupInput = z.infer<typeof renameGroupSchema>;
 export type ReorderGroupsInput = z.infer<typeof reorderGroupsSchema>;
 export type Snapshot = z.infer<typeof snapshotSchema>;
+export type ServerInstanceMutationInput = z.infer<
+  typeof serverInstanceMutationSchema
+>;
 export type PurchaseHistoryPage = z.infer<typeof purchaseHistoryPageSchema>;
 export type ReceiptStatus = z.infer<typeof receiptStatusSchema>;
 export type ReceiptBoundVia = z.infer<typeof receiptBoundViaSchema>;
@@ -842,6 +856,7 @@ export type ItemAlias = z.infer<typeof itemAliasSchema>;
 export type ItemAliases = z.infer<typeof itemAliasesSchema>;
 export type AmbiguousPhrase = z.infer<typeof ambiguousPhraseSchema>;
 export type AliasOverview = z.infer<typeof aliasOverviewSchema>;
+export type DeleteAliasInput = z.infer<typeof deleteAliasSchema>;
 export type UnknownLineGroup = z.infer<typeof unknownLineGroupSchema>;
 export type UnknownLinesOverview = z.infer<typeof unknownLinesOverviewSchema>;
 export type UnknownLinesBindInput = z.infer<typeof unknownLinesBindSchema>;

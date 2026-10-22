@@ -75,15 +75,18 @@ export function fetchAliasOverview(): Promise<AliasOverview> {
 }
 
 /**
- * Soft-delete one alias. The payload is an empty object on purpose: the route
- * takes no input, and the server hook only lets a JSON content type through.
- * The answer is the fresh overview, so the surface replaces its copy wholesale
- * — which is also how a resolved ambiguity disappears from the report.
+ * Soft-delete one alias. The payload carries the instance guard from the
+ * page's verified snapshot; the answer is the fresh overview, so the surface
+ * replaces its copy wholesale — which is also how a resolved ambiguity
+ * disappears from the report.
  */
-export function submitAliasDelete(aliasId: string): Promise<AliasOverview> {
+export function submitAliasDelete(
+  aliasId: string,
+  serverInstanceId: string,
+): Promise<AliasOverview> {
   return requestJson<AliasOverview>(`/api/aliases/${aliasId}/delete`, {
     method: 'POST',
-    body: {},
+    body: { serverInstanceId },
   });
 }
 

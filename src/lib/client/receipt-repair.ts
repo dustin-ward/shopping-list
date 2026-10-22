@@ -69,16 +69,19 @@ export function repairBindPatch(
 }
 
 /**
- * The repair request: the one line it corrects plus the `updatedAt` the editor
- * last saw — the same guard every review write carries, so a correction made
- * from a stale view is refused instead of landing on top of a newer one.
+ * The repair request: the one line it corrects, the instance guard from the
+ * page's verified snapshot, and the `updatedAt` the editor last saw — the same
+ * guards every review write carries, so a correction made from a stale view is
+ * refused instead of landing on top of a newer one.
  */
 export function repairReceiptInput(
   detail: Pick<ReceiptDetail, 'id' | 'updatedAt'>,
+  serverInstanceId: string,
   lineId: string,
   patch: RepairLinePatch,
 ): RepairReceiptInput {
   return {
+    serverInstanceId,
     expectedUpdatedAt: detail.updatedAt,
     lines: [{ id: lineId, ...patch }],
   };

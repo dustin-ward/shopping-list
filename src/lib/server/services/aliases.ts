@@ -15,6 +15,7 @@
 
 import type {
   AliasOverview,
+  DeleteAliasInput,
   ItemAlias,
   ItemAliases,
 } from '../../shared/schemas';
@@ -22,6 +23,7 @@ import { getRawDatabase } from '../db/connection';
 import { notFound } from '../errors';
 import { ambiguousPhrases } from '../receipts/matcher';
 import {
+  assertServerInstance,
   currentListId,
   runWriteTransaction,
   timestampNow,
@@ -73,8 +75,10 @@ export function listAliases(
  */
 export function deleteAlias(
   aliasId: string,
+  input: DeleteAliasInput,
   database: SqliteDatabase = getRawDatabase(),
 ): AliasOverview {
+  assertServerInstance(input.serverInstanceId);
   const listId = currentListId(database);
 
   return runWriteTransaction(database, () => {

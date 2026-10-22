@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { getConfig } from '../config.js';
 import { getRawDatabase } from '../db/connection';
 import { AppError, conflict, notFound } from '../errors';
+import type { ServerInstanceMutationInput } from '../../shared/schemas';
 import {
   createHttpOcrEngine,
   createStubOcrEngine,
@@ -10,6 +11,7 @@ import {
 } from '../receipts/ocr-engine';
 import { parseReceiptOcr, type ParsedReceipt } from '../receipts/parser';
 import {
+  assertServerInstance,
   currentListId,
   runWriteTransaction,
   timestampNow,
@@ -217,8 +219,10 @@ export async function runReceiptWorkerTick(
  */
 export function retryReceipt(
   receiptId: string,
+  input: ServerInstanceMutationInput,
   database: SqliteDatabase = getRawDatabase(),
 ): { id: string; status: 'pending' } {
+  assertServerInstance(input.serverInstanceId);
   const listId = currentListId(database);
 
   return runWriteTransaction(database, () => {

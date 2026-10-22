@@ -22,6 +22,8 @@ export type ReceiptUploadResult = {
 };
 
 export type UploadReceiptOptions = {
+  /** The page's last verified server instance, sent as a request header. */
+  serverInstanceId: string;
   /** Fraction of the upload body already sent, 0–1. */
   onProgress?: (fraction: number) => void;
   /** Test seam; defaults to a real XMLHttpRequest. */
@@ -31,6 +33,7 @@ export type UploadReceiptOptions = {
 /** The subset of XMLHttpRequest the upload uses. */
 export interface UploadRequest {
   open(method: string, url: string): void;
+  setRequestHeader(name: string, value: string): void;
   addEventListener(
     type: 'load' | 'error' | 'abort',
     listener: () => void,
@@ -48,7 +51,7 @@ export interface UploadRequest {
 
 export function uploadReceipt(
   file: Blob,
-  options: UploadReceiptOptions = {},
+  options: UploadReceiptOptions,
 ): Promise<ReceiptUploadResult> {
   const createRequest = options.createRequest ?? defaultUploadRequest;
 
@@ -58,6 +61,7 @@ export function uploadReceipt(
 
     const request = createRequest();
     request.open('POST', '/api/receipts');
+    request.setRequestHeader('x-server-instance-id', options.serverInstanceId);
 
     request.upload.addEventListener('progress', (event) => {
       if (!options.onProgress || !event.lengthComputable || event.total <= 0)

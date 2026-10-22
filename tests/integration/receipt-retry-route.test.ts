@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { closeDatabase } from '../../src/lib/server/db/connection';
 import { migrateAndBootstrap } from '../../src/lib/server/db/lifecycle.js';
 import { openSqliteDatabase } from '../../src/lib/server/db/sqlite.js';
+import { getServerInstanceId } from '../../src/lib/server/instance';
 import { handle } from '../../src/hooks.server';
 import { POST } from '../../src/routes/api/receipts/[id]/retry/+server';
 
@@ -68,7 +69,7 @@ function storedReceipt(id: string): Record<string, unknown> {
 /** Run a retry request through the server hook and then the retry route. */
 async function submit(
   id: string,
-  options: { origin?: string | null } = {},
+  options: { origin?: string | null; serverInstanceId?: string } = {},
 ): Promise<Response> {
   const headers = new Headers({ host, 'content-type': 'application/json' });
   const requestOrigin = options.origin === undefined ? origin : options.origin;
@@ -76,6 +77,9 @@ async function submit(
   const request = new Request(`${origin}/api/receipts/${id}/retry`, {
     method: 'POST',
     headers,
+    body: JSON.stringify({
+      serverInstanceId: options.serverInstanceId ?? getServerInstanceId(),
+    }),
   });
   const event = {
     request,
@@ -119,6 +123,22 @@ describe('POST /api/receipts/[id]/retry', () => {
     expect(response.status).toBe(404);
     expect(await response.json()).toMatchObject({
       error: { code: 'NOT_FOUND' },
+    });
+  });
+
+  it('refuses a retry from a different server instance before re-queueing', async () => {
+    const id = insertReceipt('failed', 3, 'the sidecar is unreachable');
+
+    const response = await submit(id, { serverInstanceId: randomUUID() });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'SERVER_CHANGED' },
+    });
+    expect(storedReceipt(id)).toEqual({
+      status: 'failed',
+      attempts: 3,
+      last_error: 'the sidecar is unreachable',
     });
   });
 

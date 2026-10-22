@@ -78,7 +78,10 @@ describe('helperOffer', () => {
 
 describe('reparseReceiptInput', () => {
   it('carries the guard token the reviewer last saw', () => {
-    expect(reparseReceiptInput(detail(low))).toEqual({
+    expect(
+      reparseReceiptInput(detail(low), '00000000-0000-4000-8000-0000000000cc'),
+    ).toEqual({
+      serverInstanceId: '00000000-0000-4000-8000-0000000000cc',
       expectedUpdatedAt: '2026-10-17T12:00:00.000Z',
     });
   });

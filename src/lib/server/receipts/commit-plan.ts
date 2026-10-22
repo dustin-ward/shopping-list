@@ -5,7 +5,7 @@
  * here so it can be read and tested without a database: the gate (no
  * `unreviewed` item line, a confirmed store), the materialization of drafted
  * items and stores, the bindings the materialized lines get, and the aliases the
- * reviewed text teaches.
+ * reviewed matcher phrases teach.
  *
  * Two rules the schema cannot express are deliberately decided here:
  *
@@ -19,12 +19,15 @@
 
 import { AppError, badRequest, conflict } from '../errors';
 import { normalizeName } from '../../shared/normalize';
+import { phraseForLine } from './matcher';
 import type { ReceiptReviewState } from '../../shared/schemas';
 
 /** One line as commit reads it: parked rows included, so the no-loss rule holds. */
 export type CommittableLine = {
   id: string;
   rawText: string;
+  /** The parser's name read, when it found one (the matcher's first phrase). */
+  parsedName: string | null;
   isItemChunk: boolean;
   reviewState: ReceiptReviewState;
   catalogItemId: string | null;
@@ -83,7 +86,7 @@ export type CommitPlan = {
   /** The lines that leave `new` for their materialized binding. */
   lineWrites: LineWrite[];
   store: StorePlan;
-  /** The aliases the reviewed printed text teaches, one per phrase and item. */
+  /** The matcher phrases reviewed lines teach, one per phrase and item. */
   aliases: AliasLearning[];
   /**
    * Whether the commit created a snapshot-visible row (a catalog item or a store
@@ -260,9 +263,10 @@ function itemForLine(
 }
 
 /**
- * The alias one line teaches: its reviewed printed text, for the item it ended
- * up on. One phrase is learned once per item — two lines printing the same thing
- * do not fight over the same row.
+ * The alias one line teaches: the phrase matching reads for it — the parser's
+ * name when it read one, else the printed text — for the item it ended up on.
+ * One phrase is learned once per item — two lines printing the same thing do
+ * not fight over the same row.
  */
 function aliasForLine(
   line: CommittableLine,
@@ -270,7 +274,7 @@ function aliasForLine(
   learned: Set<string>,
 ): AliasLearning | null {
   if (!item) return null;
-  const aliasText = line.rawText.trim();
+  const aliasText = phraseForLine(line).trim();
   const normalizedAlias = normalizeName(aliasText);
   if (!normalizedAlias) return null;
 
