@@ -25,13 +25,14 @@ import {
   detectPriceColumns,
   groupRows,
   readOcrLines,
+  rowTextWithoutAmount,
   splitRowPrice,
   unreadableAmount,
   type LayoutRow,
   type OcrLine,
   type PriceColumn,
 } from './indra-layout';
-import { formatMinor } from './money';
+import { formatMinor, parseMoneyMinor } from './money';
 import { readQuantity, type CanonicalQuantityUnit } from './quantity';
 
 /**
@@ -100,8 +101,10 @@ const FOOTER_ROUTES: { route: FooterRoute; words: string[][] }[] = [
     route: 'adjustment',
     words: [
       ['coupon'],
+      ['cpn'],
       ['discount'],
       ['savings'],
+      ['saved'],
       ['deposit'],
       ['refund'],
       ['rebate'],
@@ -109,11 +112,25 @@ const FOOTER_ROUTES: { route: FooterRoute; words: string[][] }[] = [
   },
   {
     route: 'subtotal',
-    words: [['subtotal'], ['sub', 'total'], ['sub', 'total', 'amount']],
+    words: [
+      ['subtotal'],
+      ['sub', 'total'],
+      ['sub', 'total', 'amount'],
+      ['purchase'],
+    ],
   },
   {
     route: 'tax',
-    words: [['tax'], ['taxes'], ['vat'], ['sales', 'tax'], ['tax', 'amount']],
+    words: [
+      ['tax'],
+      ['taxes'],
+      ['vat'],
+      ['hst'],
+      ['gst'],
+      ['pst'],
+      ['sales', 'tax'],
+      ['tax', 'amount'],
+    ],
   },
   {
     route: 'total',
@@ -144,6 +161,18 @@ const FOOTER_ROUTES: { route: FooterRoute; words: string[][] }[] = [
       ['ebt'],
       ['check'],
       ['card'],
+      ['tip'],
+      ['gratuity'],
+      ['account'],
+      ['approved'],
+      ['approval'],
+      ['payment'],
+      ['transaction'],
+      ['auth'],
+      ['number'],
+      ['order'],
+      ['ordered'],
+      ['thank', 'you'],
     ],
   },
 ];
@@ -174,6 +203,10 @@ export function parseReceiptOcr(raw: string): ParsedReceipt {
   let totalMinor: number | null = null;
   let itemRegionStarted = false;
   let pending: LayoutRow[] = [];
+  // Rows above the first priced item are either the receipt header or the
+  // first item's name. Hold them until the first price arrives, then keep only
+  // the name line and park the rest.
+  let preItem: LayoutRow[] = [];
   const unreadable: string[] = [];
   let mismatchCount = 0;
   let lowConfidenceCount = 0;
@@ -184,13 +217,31 @@ export function parseReceiptOcr(raw: string): ParsedReceipt {
     pending = [];
   };
 
+  const flushPreItem = (): void => {
+    for (const row of preItem)
+      parsed.push(parkedRow(row, columns, columnFound));
+    preItem = [];
+  };
+
   for (const row of rows) {
-    const price = splitRowPrice(row, columns, columnFound);
+    let price = splitRowPrice(row, columns, columnFound);
+    // A regular-price line sometimes carries the item's actual total in an
+    // intermediate column (`Reg 2.99 1.0 1.79`). When the right margin is
+    // unreadable, the last readable amount on the line is that total.
+    if (
+      price.priceMinor === null &&
+      pending.length > 0 &&
+      isPriceMetadata(fullText(row))
+    ) {
+      const fallback = lastMoneyToken(fullText(row));
+      if (fallback !== null) price = { ...price, priceMinor: fallback };
+    }
     const route = routeFooterRow(price.text);
-    const amount = unreadableAmountOf(row, columns, columnFound);
+    const amount = unreadableAmountOf(row);
 
     if (route && route !== 'adjustment') {
       flushPending();
+      flushPreItem();
       const parked = parkedRow(row, columns, columnFound);
       parsed.push(parked);
       itemRegionStarted = true;
@@ -202,22 +253,89 @@ export function parseReceiptOcr(raw: string): ParsedReceipt {
 
     if (route === 'adjustment') {
       flushPending();
+      flushPreItem();
       parsed.push(parkedRow(row, columns, columnFound));
       continue;
     }
 
     if (row.zone === 'header' || row.zone === 'footer') {
       flushPending();
+      flushPreItem();
+      parsed.push(parkedRow(row, columns, columnFound));
+      continue;
+    }
+
+    // Department headers (`22-DAIRY`, `34-BAKERY`) are printed between items,
+    // not as part of the next item's name.
+    if (isDepartmentHeader(row)) {
+      flushPending();
+      flushPreItem();
       parsed.push(parkedRow(row, columns, columnFound));
       continue;
     }
 
     if (price.priceMinor === null) {
-      if (amount)
+      if (amount) {
         unreadable.push(`could not read the amount on "${fullText(row)}"`);
+        if (pending.length > 0 && isAmountTailRow(row)) {
+          // The buffered name is the item and this row carries its unreadable
+          // amount. Keep the item with an unknown price so the amount line
+          // cannot be folded into the next item's name.
+          const pendingName = pending.map(fullText).join(' ');
+          if (looksLikeItemName(pendingName)) {
+            if (!itemRegionStarted) flushPreItem();
+            const item = itemRow(
+              pending.at(-1)!,
+              { text: '', priceMinor: null },
+              pending.slice(0, -1),
+              columnFound,
+            );
+            pending = [];
+            parsed.push(item.line);
+            if ((item.line.confidence ?? 1) < LOW_CONFIDENCE) {
+              lowConfidenceCount += 1;
+            }
+          } else {
+            flushPending();
+          }
+          parsed.push(parkedRow(row, columns, columnFound));
+          continue;
+        }
+
+        if (looksLikeItemName(fullText(row))) {
+          // The row names its own item (a leading product code, or a full
+          // product name); keep it with an unknown price.
+          if (!itemRegionStarted) flushPreItem();
+          const item = itemRow(row, price, [], columnFound);
+          parsed.push(item.line);
+          if ((item.line.confidence ?? 1) < LOW_CONFIDENCE) {
+            lowConfidenceCount += 1;
+          }
+          continue;
+        }
+
+        // A labelled footer line with an amount-shaped code: park it after
+        // the buffered name rows so reading order is preserved.
+        flushPending();
+        parsed.push(parkedRow(row, columns, columnFound));
+        continue;
+      }
+
       if (itemRegionStarted) pending.push(row);
-      else parsed.push(parkedRow(row, columns, columnFound));
+      else preItem.push(row);
       continue;
+    }
+
+    if (!itemRegionStarted) {
+      const nameFromBuffer =
+        preItem.length > 0 &&
+        (price.text.trim() === '' || isPriceMetadata(price.text));
+      const bufferedName = nameFromBuffer ? preItem.at(-1)! : null;
+      for (const buffered of nameFromBuffer ? preItem.slice(0, -1) : preItem) {
+        parsed.push(parkedRow(buffered, columns, columnFound));
+      }
+      preItem = [];
+      pending = bufferedName ? [bufferedName] : [];
     }
 
     const item = itemRow(row, price, pending, columnFound);
@@ -228,6 +346,43 @@ export function parseReceiptOcr(raw: string): ParsedReceipt {
     if ((item.line.confidence ?? 1) < LOW_CONFIDENCE) lowConfidenceCount += 1;
   }
   flushPending();
+  flushPreItem();
+
+  // A tax line can be mangled past keyword matching (`cuaтorat`). When the
+  // receipt prints both SUBTOTAL and TOTAL, the row between them whose amount
+  // is exactly the difference is the tax, not an item.
+  if (taxMinor === null && subtotalMinor !== null && totalMinor !== null) {
+    const difference = totalMinor - subtotalMinor;
+    const subtotalAt = parsed.findIndex(
+      (line) =>
+        !line.isItemChunk && routeFooterRow(line.rawText) === 'subtotal',
+    );
+    const totalAt = parsed.findIndex(
+      (line) => !line.isItemChunk && routeFooterRow(line.rawText) === 'total',
+    );
+    if (difference > 0 && subtotalAt >= 0 && totalAt > subtotalAt) {
+      const taxAt = parsed.findIndex(
+        (line, index) =>
+          index > subtotalAt &&
+          index < totalAt &&
+          line.isItemChunk &&
+          line.totalPriceMinor === difference,
+      );
+      if (taxAt >= 0) {
+        const line = parsed[taxAt]!;
+        parsed[taxAt] = {
+          ...line,
+          parsedName: null,
+          quantityReal: null,
+          quantityText: null,
+          quantityUnit: null,
+          unitPriceMinor: null,
+          isItemChunk: false,
+        };
+        taxMinor = difference;
+      }
+    }
+  }
 
   warnings.push(
     ...unreadable.slice(0, MAX_NAMED_WARNINGS),
@@ -323,8 +478,17 @@ function itemRow(
   pending: LayoutRow[],
   columnFound: boolean,
 ): { line: ParsedReceiptLine; qtyMismatch: boolean } {
+  // Price metadata (`Reg 7.99`, `1.0 @ 2.99`) sits between the item name and
+  // its total; it describes the price, not the product.
+  const pendingName = pending
+    .map(fullText)
+    .filter((text) => !isPriceMetadata(text))
+    .join(' ');
+  const rowText =
+    price.priceMinor === null ? rowTextWithoutAmount(row) : price.text;
+  const rowName = isPriceMetadata(rowText) ? '' : rowText;
   const printedName = collapse(
-    [pending.map(fullText).join(' '), price.text].filter(Boolean).join(' '),
+    [pendingName, rowName].filter(Boolean).join(' '),
   );
   const quantity = readQuantity(printedName);
   const totalPriceMinor = price.priceMinor;
@@ -352,7 +516,7 @@ function itemRow(
         ...row.lines.map(({ index }) => index),
       ],
       rawText: printedName,
-      parsedName: quantity ? quantity.name || null : printedName || null,
+      parsedName: cleanItemName(quantity ? quantity.name : printedName) || null,
       quantityReal: quantity?.real ?? null,
       quantityText: quantity?.text ?? null,
       quantityUnit: quantity?.unit ?? null,
@@ -379,6 +543,12 @@ function deriveUnitPrice(
 
 /** Route a printed row by keyword; `null` when it is ordinary content. */
 function routeFooterRow(text: string): FooterRoute | null {
+  // A percentage-off line is a discount, not an item; matching `off` as a
+  // keyword alone would also catch product names.
+  if (/\b\d+\s*%\s*off\b/iu.test(text)) return 'adjustment';
+  // `Check #97` is a receipt number, not a payment by check.
+  if (/^check\s*#/iu.test(text)) return null;
+
   const words = foldLookalikes(text)
     .toLowerCase()
     .split(/[^\p{L}\p{N}]+/u)
@@ -502,14 +672,75 @@ function fullText(row: LayoutRow): string {
   return collapse(row.lines.map(({ text }) => text).join(' '));
 }
 
-function unreadableAmountOf(
-  row: LayoutRow,
-  columns: PriceColumn[],
-  columnFound: boolean,
-): string | null {
-  if (!columnFound) return unreadableAmount(row);
-  const price = splitRowPrice(row, columns, true);
-  return price.priceMinor === null ? unreadableAmount(row) : null;
+/**
+ * A grocery department heading is printed as a short `NN-NAME` row between
+ * items (`22-DAIRY`, `34-BAKERY`). It is not part of the next item's name.
+ */
+function isDepartmentHeader(row: LayoutRow): boolean {
+  const text = fullText(row);
+  return text.length <= 40 && /^\d{1,2}\s*[-–]\s*[\p{L}\p{N}]/u.test(text);
+}
+
+/** A printed regular/unit price line, not a product name. */
+function isPriceMetadata(text: string): boolean {
+  return /^(?:reg(?:ular)?|was|now|sale|list)\b/iu.test(text);
+}
+
+/** The last readable amount printed on a line, or `null` when none is. */
+function lastMoneyToken(text: string): number | null {
+  const tokens = text.split(/\s+/u).filter(Boolean);
+  for (let index = tokens.length - 1; index >= 0; index -= 1) {
+    const minor = parseMoneyMinor(tokens[index]!);
+    if (minor !== null) return minor;
+  }
+  return null;
+}
+
+/**
+ * Whether printed text names an item rather than a footer or an amount. A
+ * leading product code (the long SKU grocery receipts print) or two long words
+ * is enough; a single word or a bare amount is not.
+ */
+function looksLikeItemName(text: string): boolean {
+  if (/^[^\p{L}]*\d{5,}/u.test(text)) return true;
+  const longWords = text.match(/\p{L}{3,}/gu) ?? [];
+  return longWords.length >= 2;
+}
+
+/**
+ * Whether a row is only an amount, or a quantity prefix plus an amount. Such a
+ * row can complete a buffered item name; a labelled row (`Payment I0 068742`)
+ * cannot.
+ */
+function isAmountTailRow(row: LayoutRow): boolean {
+  return !/\p{L}{3,}/u.test(rowTextWithoutAmount(row));
+}
+
+/**
+ * Product codes (UPCs and SKUs) and the punctuation thermal printers leave
+ * around a truncated name are not part of the item's name.
+ */
+function cleanItemName(text: string): string {
+  return collapse(
+    text.replace(/\b\d{6,}\b/gu, ' ').replace(/[\s:;,._|」§-]+$/u, ''),
+  );
+}
+
+function unreadableAmountOf(row: LayoutRow): string | null {
+  const amount = unreadableAmount(row);
+  if (!amount) return null;
+  // A separate amount box on the row is a price the OCR could not read.
+  if (row.lines.length > 1) return amount;
+  const name = rowTextWithoutAmount(row);
+  // An amount-only row, or the amount line of an item name, is always a
+  // printed price.
+  if (!/\p{L}{3,}/u.test(name)) return amount;
+  // A leading product code makes the row an item even with an unreadable
+  // price.
+  if (/^[^\p{L}]*\d{5,}/u.test(fullText(row))) return amount;
+  // A bare integer on a labelled row (`Check #97`) is a number, not a price;
+  // a token with separators or a currency symbol is money we failed to read.
+  return /[.,$]/u.test(amount) ? amount : null;
 }
 
 function meanConfidence(lines: OcrLine[]): number {

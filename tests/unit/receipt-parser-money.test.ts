@@ -19,6 +19,15 @@ describe('parseMoneyMinor', () => {
     // A trailing minus is how thermal printers render refunds and coupons.
     expect(parseMoneyMinor('1.00-')).toBe(-100);
     expect(parseMoneyMinor(' 2.47 ')).toBe(247);
+    // OCR drops a space into the decimal, or prints a comma decimal.
+    expect(parseMoneyMinor('86. 21')).toBe(8621);
+    expect(parseMoneyMinor('3. 50')).toBe(350);
+    expect(parseMoneyMinor('12,52')).toBe(1252);
+    expect(parseMoneyMinor('1,79.')).toBe(179);
+    // A single trailing tax flag is printed against the amount.
+    expect(parseMoneyMinor('3.49 P')).toBe(349);
+    expect(parseMoneyMinor('5.59P')).toBe(559);
+    expect(parseMoneyMinor('1.05.')).toBe(105);
   });
 
   it('rejects anything that is not unambiguously an amount', () => {
@@ -32,6 +41,8 @@ describe('parseMoneyMinor', () => {
     expect(parseMoneyMinor('1')).toBeNull();
     expect(parseMoneyMinor('1,23.45')).toBeNull();
     expect(parseMoneyMinor('12,34,567.89')).toBeNull();
+    // A bare comma group is a thousands separator or three decimals: refuse.
+    expect(parseMoneyMinor('1,234')).toBeNull();
     expect(parseMoneyMinor('8.00%')).toBeNull();
     expect(parseMoneyMinor('4.99/LB')).toBeNull();
     expect(parseMoneyMinor('2.15LB')).toBeNull();

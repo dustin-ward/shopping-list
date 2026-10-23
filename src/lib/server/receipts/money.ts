@@ -23,12 +23,34 @@ const TRAILING_MINUS = /-$/u;
 /**
  * Read one printed token as minor units, or `null` when it is not
  * unambiguously an amount.
+ *
+ * OCR leaves three kinds of noise on an otherwise clear amount, and each is
+ * repaired only when the result is still unambiguous: a space dropped into the
+ * decimal (`86. 21`), a comma used as the decimal mark (`12,52`), and the
+ * single tax flag a receipt prints beside a price (`3.49 P`). Anything that
+ * could still be read two ways stays refused.
  */
 export function parseMoneyMinor(token: string): number | null {
   let text = token.trim();
   if (text.startsWith('$')) text = text.slice(1);
   const negative = LEADING_MINUS.test(text) || TRAILING_MINUS.test(text);
-  text = text.replace(LEADING_MINUS, '').replace(TRAILING_MINUS, '');
+  text = text
+    .replace(LEADING_MINUS, '')
+    .replace(TRAILING_MINUS, '')
+    .replace(/^\$/u, '');
+  // Whitespace around a decimal or thousands separator is OCR noise; keep the
+  // digits together so `86. 21` reads as `86.21` without inventing a decimal.
+  text = text.replace(/\s*([.,])\s*/gu, '$1');
+  // A single trailing tax flag (`P`, `T`, `F`, `N`) is printed against the
+  // amount; two letters (`2.15LB`) or a unit (`4.99/LB`) are not.
+  text = text.replace(/\s*[PTFN]$/u, '');
+  // Thermal printers sometimes leave a trailing separator after the cents.
+  text = text.replace(/[.,]$/u, '');
+  // A single comma with exactly two digits after it is a decimal mark, not a
+  // thousands separator; a three-digit group stays refused as ambiguous.
+  if (!text.includes('.') && /^\d+,\d{2}$/u.test(text)) {
+    text = text.replace(',', '.');
+  }
   if (!PRINTED_AMOUNT.test(text)) return null;
 
   const [whole = '', cents = ''] = text.replace(/[$,]/gu, '').split('.');
