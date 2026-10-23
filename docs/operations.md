@@ -114,20 +114,142 @@ health check verifies the ready endpoint. Run only one replica.
 
 ## Configuration
 
-| Setting               | Purpose                                                            |
-| --------------------- | ------------------------------------------------------------------ |
-| `DATABASE_PATH`       | SQLite file; Compose uses `/data/shopping-list.sqlite`             |
-| `CANONICAL_ORIGIN`    | Exact browser-facing origin, normally the HTTPS Serve hostname     |
-| `PORT`                | Internal Node/adapter-node port; Compose uses `3000`               |
-| `SHUTDOWN_TIMEOUT`    | Maximum adapter-node drain interval in seconds; Compose uses `20`  |
-| `LOG_LEVEL`           | Reserved application log level (`info` by default)                 |
-| `PUBLISHED_PORT`      | Host loopback port forwarded to container port 3000                |
-| `BACKUP_DIR`          | Backup output directory; Compose mounts `/backups`                 |
-| `SHOPPING_LIST_IMAGE` | Optional image reference; unset builds local `shopping-list:local` |
+| Setting                     | Purpose                                                                                                         |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_PATH`             | SQLite file; Compose uses `/data/shopping-list.sqlite`                                                          |
+| `CANONICAL_ORIGIN`          | Exact browser-facing origin, normally the HTTPS Serve hostname                                                  |
+| `PORT`                      | Internal Node/adapter-node port; Compose uses `3000`                                                            |
+| `SHUTDOWN_TIMEOUT`          | Maximum adapter-node drain interval in seconds; Compose uses `20`                                               |
+| `LOG_LEVEL`                 | Reserved application log level (`info` by default)                                                              |
+| `PUBLISHED_PORT`            | Host loopback port forwarded to container port 3000                                                             |
+| `BACKUP_DIR`                | Backup output directory; Compose mounts `/backups`                                                              |
+| `SHOPPING_LIST_IMAGE`       | Optional image reference; unset builds local `shopping-list:local`                                              |
+| `RECEIPT_OCR_IMAGE`         | Published OCR sidecar image; unset uses `…/shopping-list-receipt-ocr:latest`, only started by the `ocr` profile |
+| `RECEIPT_CURRENCY`          | ISO 4217 code used for receipt money (`USD` by default); invalid codes fail startup                             |
+| `RECEIPT_OCR_URL`           | OCR sidecar endpoint (`http`/`https`); unset by default, which disables capture and the worker                  |
+| `RECEIPT_OCR_MODE`          | `http` (default) or `stub`, which returns a canned fixture without calling the sidecar                          |
+| `RECEIPT_OCR_STUB_FIXTURE`  | Dev/test only: path to the OCR payload `stub` mode replays instead of the committed fixture                     |
+| `RECEIPT_OCR_TIMEOUT_MS`    | Per-request OCR timeout in milliseconds (`30000` by default)                                                    |
+| `RECEIPT_OCR_TOKEN`         | Optional bearer token sent to the OCR engine when it is not loopback-only                                       |
+| `RECEIPT_HELPER_URL`        | Optional R4 fallback re-parse endpoint; unset by default, which hides the re-parse offer                        |
+| `RECEIPT_HELPER_MODE`       | `http` (default) or `stub`, which replays a committed helper fixture without calling anyone                     |
+| `RECEIPT_HELPER_TIMEOUT_MS` | Per-request helper timeout in milliseconds (`60000` by default)                                                 |
+| `RECEIPT_HELPER_TOKEN`      | Optional bearer token sent to the fallback helper                                                               |
+| `INDRA_OCR_THREADS`         | Optional OCR sidecar ONNX Runtime inference threads (`4` by default)                                            |
+| `RECEIPT_STORAGE_DIR`       | Retained receipt images under the `/data` volume (`/data/receipts` by default)                                  |
+| `RECEIPT_IMAGE_RETENTION`   | `keep` (capture-first default), `until_commit`, or `immediate`; see "Receipt image retention" below             |
+| `BODY_SIZE_LIMIT`           | adapter-node request body cap; set `12M` at deploy, since the upload route still caps images at 10 MB           |
+
+The receipt settings are all optional: with `RECEIPT_OCR_URL` unset the app
+boots and runs exactly as before, and already-collected receipts stay readable.
+`BODY_SIZE_LIMIT` is read by adapter-node itself, not by the app's config
+module, so an invalid receipt setting fails startup loudly while a missing
+`BODY_SIZE_LIMIT` silently rejects photo uploads before route code runs.
 
 The `.env` file contains deployment configuration, not authentication secrets;
 do not put credentials or tailnet keys in browser-visible settings. Do not commit
 `.env` or SQLite/backup files.
+
+## Receipt OCR sidecar (optional)
+
+Receipt capture needs the `receipt-ocr` sidecar: a small CPU-only Python
+container wrapping Indra OCR. It is stateless — no database, no files, no queue
+of its own — so all three deployment modes run the same app code and the choice
+is configuration only:
+
+| Mode                             | Configuration                                                                                             | Behavior                                                                                                                                                            |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A — sidecar on the same host** | Start the `ocr` profile with `RECEIPT_OCR_URL=http://receipt-ocr:8060/ocr`                                | Default single-box deployment; app and sidecar share the compose network.                                                                                           |
+| **B — remote engine**            | `RECEIPT_OCR_URL=http://<magicdns-or-ip>:8060/ocr`, plus `RECEIPT_OCR_TOKEN` when it is not loopback-only | The sidecar (or a heavier engine such as Surya 2 on a GPU/Metal box) runs on another device; only HTTP reachability is required, because the engine keeps no state. |
+| **C — off**                      | Leave `RECEIPT_OCR_URL` unset and do not start the `ocr` profile                                          | No worker tick and no capture entry; already-collected receipts stay listable, reviewable and committable.                                                          |
+
+Mode A from a source checkout (builds `./ocr-sidecar`):
+
+```sh
+docker compose --profile ocr up -d
+```
+
+with `RECEIPT_OCR_URL=http://receipt-ocr:8060/ocr` in `.env`.
+
+Mode A from the published image:
+
+```sh
+docker compose -f compose.prod.yaml --profile ocr up -d
+```
+
+with `RECEIPT_OCR_URL=http://receipt-ocr:8060/ocr` in `.env`. Set
+`RECEIPT_OCR_IMAGE` to the app image name with a `-receipt-ocr` suffix and the
+same release tag: the release workflow publishes both images with identical tags
+(tag, semver, `sha-…` and `latest`). Leaving the variable unset falls back to the
+published `latest` sidecar image, so a deploy without receipt capture never has
+to set it.
+
+Both compose services cap the sidecar at about 1 GB of memory, give it a
+read-only root filesystem with a 64 MB tmpfs `/tmp`, publish no ports, drop all
+Linux capabilities, and set `no-new-privileges`. The Indra models are baked into
+the image and `HF_HUB_OFFLINE=1` is set, so the container never fetches models at
+start-up; a missing model folder makes it exit instead of reaching the network.
+
+Verify a running sidecar with the bundled smoke check. It calls `/healthz` and
+posts the baked fixture image to `/ocr`, asserting the lines/blocks contract the
+app consumes:
+
+```sh
+docker compose exec -T receipt-ocr python smoke.py
+docker exec <container> python smoke.py            # same check from the host shell
+```
+
+Prove the image needs no network at all:
+
+```sh
+docker run --rm -d --name ocr-offline --network none --read-only \
+  --tmpfs /tmp --memory 1g "$RECEIPT_OCR_IMAGE"
+docker exec ocr-offline python smoke.py
+```
+
+Set `RECEIPT_OCR_TOKEN` to the same value on both containers when the engine
+listens beyond the compose network (deployment mode B in the plan): the app
+sends it as a bearer header, and the sidecar rejects `/ocr` without it. Keep the
+value out of version control. `RECEIPT_OCR_TIMEOUT_MS` (30 s by default) bounds
+each attempt; a down or slow sidecar retries up to three times and then marks the
+receipt `failed` with a visible error, while the app stays healthy. See
+`ocr-sidecar/README.md` for the full contract and image invariants.
+
+### Fallback re-parse helper (optional)
+
+When `RECEIPT_HELPER_URL` is set, a receipt the first parser found structurally
+weak — no price column, no footer totals, or low item-line confidence — offers
+"Re-parse with helper" in review. The app POSTs the stored OCR evidence to that
+endpoint and replaces only the parsed lines, totals and warnings; the photo and
+`ocr_json` are untouched, and the request is refused if the receipt changed since
+the view loaded. The tier is off by default and no engine ships with the app:
+see `docs/adr/0004-fallback-reparse-tier.md` for the decision and the
+re-evaluation protocol, and `docs/degraded-receipts.md` for capture guidance.
+`RECEIPT_HELPER_MODE=stub` replays a committed fixture and is for dev/test only.
+
+### Receipt image retention
+
+`RECEIPT_IMAGE_RETENTION` is the storage escape hatch and defaults to `keep`,
+the capture-first posture: captured images stay in `RECEIPT_STORAGE_DIR` and are
+archived by every backup run.
+
+| Value            | Intended effect (see the caveat below)                                        |
+| ---------------- | ----------------------------------------------------------------------------- |
+| `keep` (default) | Images are retained indefinitely.                                             |
+| `until_commit`   | A receipt drops its image once it commits.                                    |
+| `immediate`      | The image is dropped without waiting for review, which then stays text-first. |
+
+In R1 the app accepts, validates and defaults the setting but does not yet purge
+automatically, so **every value currently behaves like `keep`**. The only
+deletion today is an explicit discard, which purges the image after a confirm and
+keeps the OCR text and lines. OCR text, parsed lines and prices live in SQLite
+regardless, and a receipt whose image is gone renders in the review pane with a
+"purged" note instead of an error. If storage becomes a concern before the
+retention modes land, run a backup first so the images exist in an archive, then
+prune `RECEIPT_STORAGE_DIR` and back up again.
+
+Scale check: a capture is roughly 100–500 KB, so a couple of thousand trips stay
+under about 1 GB — a growth consideration, not a scarcity.
 
 ## Backups
 
@@ -137,12 +259,25 @@ Run a verified online backup from the running container:
 docker compose -f compose.prod.yaml exec -T shopping-list node scripts/backup.mjs
 ```
 
-The command writes a timestamped `shopping-list-*.sqlite` file under `/backups`
-and checks both `PRAGMA integrity_check` and `PRAGMA foreign_key_check`. It uses
-SQLite's online backup API, so do not replace it with a live `cp` of only the
-`.sqlite` file while WAL writes may be pending. The generated backup is
-checkpointed into a standalone SQLite file and created with owner-only
-permissions.
+Each run writes a matched pair of artifacts under `/backups` (or `BACKUP_DIR`):
+
+- `shopping-list-<timestamp>-<uuid>.sqlite` — the database backup. It checks both
+  `PRAGMA integrity_check` and `PRAGMA foreign_key_check`, and is created with
+  owner-only permissions. It uses SQLite's online backup API, so do not replace
+  it with a live `cp` of only the `.sqlite` file while WAL writes may be pending;
+  the result is checkpointed into a standalone SQLite file.
+- `shopping-list-<timestamp>-<uuid>-receipts.tar` — everything still in
+  `RECEIPT_STORAGE_DIR` (in practice the `<uuid>.<ext>` receipt images), stored
+  uncompressed because the images are already JPEG/PNG/WebP. In-flight upload
+  spool files and symlinks are excluded, and the archive is verified against the
+  bytes written.
+
+The two files share one run id, so a restore cannot pair one run's database with
+another run's images. The database is written first and the images second: with
+the capture-first default every image a backed-up receipt row references is in
+the archive, while a spare image is harmless. An archive reporting `0 images`
+means no capture images were on disk at that moment (before any capture, or after
+they were discarded), so the database half is still a complete backup.
 
 Schedule it daily with the LXC host's existing scheduler, for example:
 
@@ -152,10 +287,11 @@ Schedule it daily with the LXC host's existing scheduler, for example:
 
 Choose and periodically test a retention policy. Keep at least one encrypted,
 off-host copy; another directory or volume on the same LXC disk is not disaster
-recovery. Restrict access to backups because they contain the household list and
-purchase history. A simple starting policy is to keep the most recent 30 daily
-backups and 12 monthly copies off-host; adapt retention to the household's
-recovery needs and available storage.
+recovery. Restrict access to backups because they contain the household list,
+purchase history and receipt images. A simple starting policy is to keep the most
+recent 30 daily backups and 12 monthly copies off-host, and to copy both halves of
+a run together; adapt retention to the household's recovery needs and available
+storage.
 
 For a local development database, set `BACKUP_DIR=./backups` and run
 `pnpm db:backup` from the project root.
@@ -164,25 +300,37 @@ For a local development database, set `BACKUP_DIR=./backups` and run
 
 1. Stop the application: `docker compose -f compose.prod.yaml stop shopping-list`.
 2. Preserve the current data directory before attempting recovery.
-3. Restore a verified backup into a **fresh** data directory. For example, from
-   the project directory inside the LXC:
+3. Restore a verified backup into a **fresh** data directory. Pick one backup
+   run and restore both of its artifacts — the `-receipts.tar` file must carry
+   the same run id as the `.sqlite` file. For example, from the project directory
+   inside the LXC:
 
    ```sh
    mv data "data-before-restore-$(date -u +%Y%m%dT%H%M%SZ)"
-   mkdir data
+   mkdir -p data/receipts
    install -o 10001 -g 10001 -m 0600 \
-     backups/shopping-list-<timestamp>.sqlite data/shopping-list.sqlite
+     backups/shopping-list-<run-id>.sqlite data/shopping-list.sqlite
+   tar -xf backups/shopping-list-<run-id>-receipts.tar \
+     -C data/receipts --no-same-owner
+   chown -R 10001:10001 data/receipts
    ```
 
-   Use the correct outer-LXC/container UID mapping for the bind mount. A fresh
-   directory ensures there is no `shopping-list.sqlite-wal` or
-   `shopping-list.sqlite-shm` from a different database beside the restored file.
+   Use the correct outer-LXC/container UID mapping for the bind mount.
+   `--no-same-owner` is deliberate: the archive records no meaningful ownership,
+   and the `chown` hands the images back to the container's fixed UID/GID. A
+   fresh directory ensures there is no `shopping-list.sqlite-wal` or
+   `shopping-list.sqlite-shm` from a different database beside the restored
+   file, and no stale images beside the restored ones. Check that the restored
+   `data/receipts` and the restored database agree — every
+   `receipts.image_path` that is not `NULL` should have a file; an extra file
+   (for example one whose upload landed after the database snapshot) is
+   harmless.
 
 4. Start the app with `docker compose -f compose.prod.yaml up -d` and verify the
-   health check, current list, and purchase history. Startup applies compatible
-   migrations before accepting traffic. A new process instance causes open
-   clients to fetch the authoritative restored snapshot even if its revision is
-   lower than before.
+   health check, current list, and purchase history. Open a receipt to confirm
+   its image renders. Startup applies compatible migrations before accepting
+   traffic. A new process instance causes open clients to fetch the authoritative
+   restored snapshot even if its revision is lower than before.
 5. Before an upgrade, create and verify a backup. For a GHCR deployment, update
    `SHOPPING_LIST_IMAGE`, then run `docker compose -f compose.prod.yaml pull`
    and `docker compose -f compose.prod.yaml up -d`. For a source checkout,
@@ -191,9 +339,10 @@ For a local development database, set `BACKUP_DIR=./backups` and run
    incompatible migration without restoring a compatible backup.
 
 Test restores in a disposable directory/container before treating the backup
-schedule as operationally ready. The automated SQLite test suite exercises a
-backup and restore into a temporary database; it does not replace a restore test
-on the actual LXC storage and UID mapping.
+schedule as operationally ready. The automated test suite exercises a full
+backup run and restores the database plus the receipt images into a temporary
+directory; it does not replace a restore test on the actual LXC storage and UID
+mapping.
 
 ## Troubleshooting
 

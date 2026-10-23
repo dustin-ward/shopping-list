@@ -1,0 +1,8 @@
+# Everything needed to run the sidecar's tests locally and in CI.
+#
+# The contract tests inject a fake engine, so they need neither the models nor a
+# network; the Indra adapter test skips itself unless INDRA_OCR_MODEL_DIR points
+# at a baked model folder.
+-r requirements.txt
+httpx==0.28.1
+pytest==9.1.1

@@ -15,6 +15,13 @@
       "when": 1791161472282,
       "tag": "0001_add_group_color",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792275521788,
+      "tag": "0002_wooden_jack_power",
+      "breakpoints": true
     }
   ]
 }

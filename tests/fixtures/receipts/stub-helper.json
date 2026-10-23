@@ -1,0 +1,74 @@
+{
+  "lines": [
+    {
+      "rawText": "MILK 2% 1L",
+      "parsedName": "MILK 2% 1L",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 295,
+      "isItemChunk": true,
+      "confidence": 0.92
+    },
+    {
+      "rawText": "SOURDOUGH BREAD",
+      "parsedName": "SOURDOUGH BREAD",
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 449,
+      "isItemChunk": true,
+      "confidence": 0.9
+    },
+    {
+      "rawText": "GALA APPLES 2.15LB @ 0.69/LB",
+      "parsedName": "GALA APPLES",
+      "quantityReal": 2.15,
+      "quantityText": "2.15LB",
+      "quantityUnit": "lb",
+      "unitPriceMinor": 69,
+      "totalPriceMinor": 148,
+      "isItemChunk": true,
+      "confidence": 0.88
+    },
+    {
+      "rawText": "SUBTOTAL",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 892,
+      "isItemChunk": false,
+      "confidence": 0.99
+    },
+    {
+      "rawText": "TAX",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 54,
+      "isItemChunk": false,
+      "confidence": 0.99
+    },
+    {
+      "rawText": "TOTAL",
+      "parsedName": null,
+      "quantityReal": null,
+      "quantityText": null,
+      "quantityUnit": null,
+      "unitPriceMinor": null,
+      "totalPriceMinor": 946,
+      "isItemChunk": false,
+      "confidence": 0.99
+    }
+  ],
+  "subtotalMinor": 892,
+  "taxMinor": 54,
+  "totalMinor": 946,
+  "warnings": []
+}

@@ -5,7 +5,10 @@
 - This repository began with plans only; implementation status is recorded below.
 - Read `README.md`, `docs/product.md`, and `docs/architecture.md` before coding.
 - Implement only the agreed MVP. Future interests are not authorization to build
-  those features, accounts, offline edits, or a public deployment.
+  those features, accounts, offline edits, or a public deployment. The one
+  agreed post-MVP direction is receipt scanning — see the scope checkpoints
+  below and `docs/receipt-scanner-plan.html`; it is still sequenced after the
+  MVP.
 - Follow a single-package SvelteKit/TypeScript architecture with server-only
   database/services and a small mobile UI.
 - If a recommended implementation detail is incompatible with the chosen
@@ -195,11 +198,19 @@ Before adding complexity, ask whether a simpler MVP mechanism satisfies the
 requirement:
 
 - Polling before WebSockets.
-- One app service before workers/queues.
+- One app service before workers/queues. (The approved receipt feature honors
+  this rather than breaking it: its worker is an in-process loop inside the
+  single app service, single concurrency over the SQLite `receipts` table, with
+  an optional stateless OCR sidecar and no broker or queue service. See
+  `docs/receipt-scanner-plan.html` §9 and ADR 0002.)
 - Text quantity before unit systems.
 - Online-only writes before offline reconciliation.
 - Purchase rows before event sourcing.
-- Explicit future migrations before speculative product/receipt tables.
+- Explicit future migrations before speculative product/receipt tables. (The
+  receipt scanner's three tables — `receipts`, `receipt_lines`,
+  `item_aliases` — are designed rather than speculative
+  (`docs/receipt-scanner-plan.html` §5) and arrive as reviewed migrations when
+  that feature is built; the MVP still ships none of them.)
 
 The expected outcome is a reliable household utility, not a grocery-commerce
 platform. Ship and validate the complete MVP before beginning optional features.

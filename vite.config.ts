@@ -10,6 +10,10 @@ export default defineConfig(({ mode }) => {
   for (const [key, value] of Object.entries(loadEnv(mode, process.cwd(), ''))) {
     process.env[key] ??= value;
   }
+  // A clean checkout has no `.env` (it is gitignored and excluded from the
+  // Docker build context), but the request-handler tests still validate the
+  // runtime config. Supply a local default; a real `.env` value wins.
+  process.env.CANONICAL_ORIGIN ??= 'http://localhost:5173';
 
   return {
     plugins: [sveltekit({ adapter: adapter(), preprocess: vitePreprocess() })],

@@ -21,6 +21,14 @@ One application process serves HTTP and owns a local SQLite database. Do not
 add Redis, an external database, WebSockets, a scheduled worker, or a reverse
 proxy container unless a concrete deployment requirement calls for it.
 
+**Sanctioned receipt-scanning exception (approved 2026-10-17).** Receipt
+scanning is the approved post-MVP direction, and it does not relax this rule: its worker
+is an in-process loop inside the one app process (single-concurrency 2–5 s tick
+over a SQLite `receipts` queue — not a scheduled worker), and it adds no Redis,
+external database, broker, or queue service. The app alone owns SQLite, the
+queue, retries, and results. See `docs/receipt-scanner-plan.html` §9 and
+`docs/adr/0002-ocr-as-optional-sidecar.md`.
+
 ## 2. Request/data flow
 
 ```text
@@ -36,6 +44,13 @@ Browser only:
   service worker -> app shell / versioned static assets
   IndexedDB      -> last verified current-list snapshot
 ```
+
+When receipt scanning is enabled, the deployment gains at most one further
+optional, stateless container: the `receipt-ocr` sidecar (`POST /ocr`, no
+database, no files of its own, no published ports). The app process, its SQLite
+ownership, and the flow above are unchanged; with `RECEIPT_OCR_URL` unset the
+sidecar is left out entirely. See `docs/receipt-scanner-plan.html` §9 and
+`docs/adr/0002-ocr-as-optional-sidecar.md`.
 
 API routes are thin adapters. Business transitions, invariants, and transactions
 belong in server-only services. Browser modules must not import database or
@@ -81,6 +96,13 @@ change. Snapshot fields preserve what the purchase meant at the time.
 
 Do not add household/user tables or speculative product/receipt schemas yet.
 The list IDs and stable item/purchase IDs give later migrations a useful anchor.
+
+**Sanctioned exception:** the receipt scanner's three tables (`receipts`,
+`receipt_lines`, `item_aliases`) are designed, approved, and post-MVP — the
+receipt data model in `docs/receipt-scanner-plan.html` §5 and
+`docs/adr/0003-alias-and-unknown-line-model.md` — so they are not the
+speculative schemas this section forbids. They arrive as reviewed migrations
+when that feature is built; no other product/receipt schema is authorized.
 
 ### SQLite operation
 

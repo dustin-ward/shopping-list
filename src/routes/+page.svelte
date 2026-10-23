@@ -10,14 +10,18 @@
     loadOfflineSnapshot,
     saveOfflineSnapshot,
   } from '../lib/client/offline';
+  import ReceiptsTab from '../lib/components/receipts/ReceiptsTab.svelte';
+  import ItemsTab from '../lib/components/items/ItemsTab.svelte';
+  import { fetchItemPrices, pricesNudge } from '../lib/client/item-prices';
   import { normalizeName } from '../lib/shared/normalize';
   import {
     DEFAULT_GROUP_COLOR,
     type PurchaseHistoryPage,
+    type ReceiptCapabilities,
     type Snapshot,
   } from '../lib/shared/schemas';
 
-  type Screen = 'list' | 'groups' | 'history';
+  type Screen = 'list' | 'groups' | 'history' | 'receipts' | 'items';
   const UNGROUPED_SECTION_ID = 'ungrouped';
   type ActiveEntrySection = {
     id: string;
@@ -42,6 +46,12 @@
   let snapshot = $derived(syncState.snapshot);
   let screen = $state<Screen>('list');
   let menuOpen = $state(false);
+  // Receipts are a feature-flagged surface: the tab only exists while an OCR
+  // engine is configured, and receipt data itself never enters the snapshot.
+  let receiptsEnabled = $state(false);
+  // The fallback re-parse tier is a second, independent flag: capture can work
+  // with no helper, and the editor only offers the helper when it is set.
+  let receiptHelperEnabled = $state(false);
   let connectionState = $derived(syncState.status);
   let lastVerifiedAt = $derived(syncState.lastVerifiedAt);
   let refreshing = $derived(syncState.fetching);
@@ -66,6 +76,10 @@
   let addNote = $state('');
   let addGroupIds = $state<string[]>([]);
   let addGroupsTouched = $state(false);
+  /** "$3.49 last week at Hen House" — advisory, from the same prices read. */
+  let addPriceNudge = $state<string | null>(null);
+  let addPriceNudgeRequest = 0;
+  let addPriceNudgeTimer: ReturnType<typeof setTimeout> | null = null;
 
   let editingEntryId = $state<string | null>(null);
   let editingEntryGroupId = $state<string | null>(null);
@@ -90,6 +104,8 @@
   let historyLoaded = $state(false);
   let historyLoading = $state(false);
   let historyError = $state('');
+  /** A committed receipt the Prices sheet asked to open; cleared once opened. */
+  let receiptToOpen = $state<string | null>(null);
   let cacheWritesSuppressed = false;
   let persistedAt: number | null = null;
   let cacheWriteQueue: Promise<void> = Promise.resolve();
@@ -169,6 +185,15 @@
   });
 
   onMount(() => {
+    void requestJson<ReceiptCapabilities>('/api/receipts/capabilities')
+      .then((capabilities) => {
+        receiptsEnabled = capabilities.enabled;
+        receiptHelperEnabled = capabilities.helperEnabled;
+      })
+      .catch(() => {
+        receiptsEnabled = false;
+        receiptHelperEnabled = false;
+      });
     let registration: ServiceWorkerRegistration | null = null;
     const unsubscribe = snapshotCoordinator.subscribe((state) => {
       syncState = state;
@@ -325,6 +350,7 @@
 
   async function openAddForm(groupId?: string): Promise<void> {
     addFormOpen = true;
+    clearAddPriceNudge();
     if (groupId) {
       addGroupContextId = groupId;
       addDetailsOpen = true;
@@ -333,6 +359,11 @@
     errorMessage = '';
     await tick();
     document.getElementById('new-item-name')?.focus();
+  }
+
+  function closeAddForm(): void {
+    addFormOpen = false;
+    clearAddPriceNudge();
   }
 
   async function clearThisDeviceData(): Promise<void> {
@@ -398,6 +429,19 @@
     window.location.reload();
   }
 
+  /** The refreshed snapshot covers the write that just committed. */
+  function snapshotCoversWrite(
+    result: { serverInstanceId: string; revision: number },
+    refreshed: boolean,
+  ): boolean {
+    const current = snapshotCoordinator.getState().snapshot;
+    return (
+      refreshed &&
+      current?.serverInstanceId === result.serverInstanceId &&
+      current.revision >= result.revision
+    );
+  }
+
   async function mutate(
     path: string,
     method: string,
@@ -419,12 +463,7 @@
         result.revision,
       );
       const refreshed = await refreshSnapshot();
-      const current = snapshotCoordinator.getState().snapshot;
-      if (
-        refreshed &&
-        current?.serverInstanceId === result.serverInstanceId &&
-        current.revision >= result.revision
-      ) {
+      if (snapshotCoversWrite(result, refreshed)) {
         notice = 'Saved.';
       } else {
         errorMessage =
@@ -466,6 +505,45 @@
     addGroupIds = [...new Set(nextGroupIds)].filter((id) =>
       liveGroupIds.has(id),
     );
+    scheduleAddPriceNudge(remembered?.id ?? null);
+  }
+
+  /**
+   * The add form's nudge is advisory and cheap to be wrong about: it asks the
+   * same `/prices` read the item sheet uses, after a short pause so typing a
+   * name is one request rather than one per keystroke, and any failure simply
+   * leaves the form without a sentence.
+   */
+  function clearAddPriceNudge(): void {
+    addPriceNudgeRequest += 1;
+    if (addPriceNudgeTimer !== null) {
+      clearTimeout(addPriceNudgeTimer);
+      addPriceNudgeTimer = null;
+    }
+    addPriceNudge = null;
+  }
+
+  function scheduleAddPriceNudge(itemId: string | null): void {
+    clearAddPriceNudge();
+    if (!itemId) return;
+    const request = addPriceNudgeRequest;
+    addPriceNudgeTimer = setTimeout(() => {
+      addPriceNudgeTimer = null;
+      void loadAddPriceNudge(itemId, request);
+    }, 300);
+  }
+
+  async function loadAddPriceNudge(
+    itemId: string,
+    request: number,
+  ): Promise<void> {
+    try {
+      const prices = await fetchItemPrices(itemId);
+      if (request !== addPriceNudgeRequest) return;
+      addPriceNudge = pricesNudge(prices, new Date());
+    } catch {
+      // An unavailable price read is not an error the add form should show.
+    }
   }
 
   function toggleGroup(ids: string[], groupId: string): string[] {
@@ -508,6 +586,7 @@
       addGroupContextId = null;
       addDetailsOpen = false;
       addFormOpen = false;
+      clearAddPriceNudge();
     }
   }
 
@@ -741,6 +820,36 @@
     if (nextScreen === 'history' && !historyLoaded) await loadHistory(true);
   }
 
+  /**
+   * A price row's receipt link: show the Receipts tab with that committed
+   * receipt already open. The id is handed over once and cleared when the tab
+   * has opened it, so returning to Receipts later starts on the list.
+   */
+  function openReceiptFromPrices(receiptId: string): void {
+    receiptToOpen = receiptId;
+    void openScreen('receipts');
+  }
+
+  /**
+   * An item rename or merge changed snapshot-visible rows (items and their list
+   * entries). The item screen reloads its own counts; the page owns the shared
+   * snapshot, so it requires the write's revision and refreshes it.
+   */
+  async function handleItemChanged(result: {
+    serverInstanceId: string;
+    revision: number;
+  }): Promise<void> {
+    snapshotCoordinator.requireRevision(
+      result.serverInstanceId,
+      result.revision,
+    );
+    const refreshed = await refreshSnapshot();
+    if (!snapshotCoversWrite(result, refreshed)) {
+      errorMessage =
+        'Saved, but the latest list could not be loaded. Refresh before making another change.';
+    }
+  }
+
   async function loadHistory(reset: boolean): Promise<void> {
     if (historyLoading) return;
     historyLoading = true;
@@ -881,7 +990,7 @@
           type="button"
           aria-label="Open add item form"
           aria-expanded={addFormOpen}
-          onclick={() => (addFormOpen ? (addFormOpen = false) : openAddForm())}
+          onclick={() => (addFormOpen ? closeAddForm() : openAddForm())}
           disabled={!canWrite}
         >
           <span aria-hidden="true">+</span>
@@ -960,12 +1069,28 @@
         Groups
       </button>
       <button
+        class:active={screen === 'items'}
+        aria-current={screen === 'items' ? 'page' : undefined}
+        onclick={() => openScreen('items')}
+      >
+        Items
+      </button>
+      <button
         class:active={screen === 'history'}
         aria-current={screen === 'history' ? 'page' : undefined}
         onclick={() => openScreen('history')}
       >
         Purchase history
       </button>
+      {#if receiptsEnabled}
+        <button
+          class:active={screen === 'receipts'}
+          aria-current={screen === 'receipts' ? 'page' : undefined}
+          onclick={() => openScreen('receipts')}
+        >
+          Receipts
+        </button>
+      {/if}
     </nav>
   </div>
 
@@ -1085,14 +1210,14 @@
             >
               {pendingAction === 'add' ? 'Adding…' : 'Add item'}
             </button>
-            <button
-              class="quiet-button"
-              type="button"
-              onclick={() => (addFormOpen = false)}
-            >
+            <button class="quiet-button" type="button" onclick={closeAddForm}>
               Close
             </button>
           </div>
+
+          {#if addPriceNudge}
+            <p class="add-price-nudge" role="status">{addPriceNudge}</p>
+          {/if}
 
           <details class="item-details" bind:open={addDetailsOpen}>
             <summary>Quantity, note, and groups</summary>
@@ -1686,6 +1811,23 @@
         </p>
       {/if}
     </section>
+  {:else if screen === 'items'}
+    <ItemsTab
+      writable={canWrite}
+      serverInstanceId={snapshot.serverInstanceId}
+      onChanged={handleItemChanged}
+      onOpenReceipt={openReceiptFromPrices}
+    />
+  {:else if screen === 'receipts'}
+    <ReceiptsTab
+      writable={canWrite}
+      serverInstanceId={snapshot.serverInstanceId}
+      helperEnabled={receiptHelperEnabled}
+      catalogItems={snapshot.catalogItems}
+      groups={snapshot.groups}
+      {receiptToOpen}
+      onReceiptOpened={() => (receiptToOpen = null)}
+    />
   {:else}
     <section class="secondary-screen" aria-labelledby="history-heading">
       <div class="list-heading">
@@ -2314,6 +2456,12 @@
   .add-name-row input {
     min-height: 3.1rem;
     font-size: 1.05rem;
+  }
+
+  .add-price-nudge {
+    margin: 0.5rem 0 0;
+    color: var(--text-muted);
+    font-size: 0.85rem;
   }
 
   .primary-button,

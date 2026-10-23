@@ -45,6 +45,8 @@ COPY --from=build --chown=shopping:shopping /app/src/lib/server/config.js ./src/
 COPY --from=build --chown=shopping:shopping /app/src/lib/server/db/lifecycle.js ./src/lib/server/db/lifecycle.js
 COPY --from=build --chown=shopping:shopping /app/src/lib/server/db/sqlite.js ./src/lib/server/db/sqlite.js
 COPY --from=build --chown=shopping:shopping /app/src/lib/server/db/backup.js ./src/lib/server/db/backup.js
+COPY --from=build --chown=shopping:shopping /app/src/lib/server/db/archive.js ./src/lib/server/db/archive.js
+COPY --from=build --chown=shopping:shopping /app/src/lib/server/receipts/upload-spool.js ./src/lib/server/receipts/upload-spool.js
 
 USER shopping
 VOLUME ["/data"]

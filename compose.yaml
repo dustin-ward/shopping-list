@@ -15,6 +15,26 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       BACKUP_DIR: /backups
       CANONICAL_ORIGIN: ${CANONICAL_ORIGIN:?Set_CANONICAL_ORIGIN_in_.env}
+      BODY_SIZE_LIMIT: '12M'
+      # Receipt scanning is optional: a blank value disables capture and the
+      # worker. Set RECEIPT_OCR_URL=http://receipt-ocr:8060/ocr and start the
+      # `ocr` profile to enable it.
+      RECEIPT_OCR_URL: ${RECEIPT_OCR_URL:-}
+      RECEIPT_OCR_MODE: ${RECEIPT_OCR_MODE:-http}
+      RECEIPT_OCR_TIMEOUT_MS: ${RECEIPT_OCR_TIMEOUT_MS:-30000}
+      RECEIPT_OCR_TOKEN: ${RECEIPT_OCR_TOKEN:-}
+      RECEIPT_CURRENCY: ${RECEIPT_CURRENCY:-USD}
+      # Optional R4 fallback re-parse helper; a blank URL keeps the tier off and
+      # the review screen unchanged. See docs/adr/0004-fallback-reparse-tier.md.
+      RECEIPT_HELPER_URL: ${RECEIPT_HELPER_URL:-}
+      RECEIPT_HELPER_MODE: ${RECEIPT_HELPER_MODE:-http}
+      RECEIPT_HELPER_TIMEOUT_MS: ${RECEIPT_HELPER_TIMEOUT_MS:-60000}
+      RECEIPT_HELPER_TOKEN: ${RECEIPT_HELPER_TOKEN:-}
+      # Captured images live inside the /data volume and are archived by
+      # scripts/backup.mjs. RECEIPT_IMAGE_RETENTION defaults to keep; see
+      # docs/operations.md for the retention caveat.
+      RECEIPT_STORAGE_DIR: /data/receipts
+      RECEIPT_IMAGE_RETENTION: ${RECEIPT_IMAGE_RETENTION:-keep}
     ports:
       - target: 3000
         published: ${PUBLISHED_PORT:-3000}
@@ -32,4 +52,40 @@ services:
       interval: 30s
       timeout: 3s
       start_period: 10s
+      retries: 3
+
+  # The optional Indra OCR sidecar (docs/receipt-scanner-plan.html §9). Built
+  # locally, behind the `ocr` profile so the default dev stack stays light:
+  # `docker compose --profile ocr up -d` plus RECEIPT_OCR_URL in `.env`.
+  receipt-ocr:
+    profiles: ['ocr']
+    build:
+      context: ./ocr-sidecar
+    image: ${RECEIPT_OCR_IMAGE:-shopping-list-receipt-ocr:local}
+    restart: unless-stopped
+    init: true
+    # Perception box only: stateless, CPU-only, no published ports, no writes
+    # outside the tmpfs.
+    read_only: true
+    mem_limit: 1g
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    environment:
+      OCR_PORT: '8060'
+      INDRA_OCR_THREADS: ${INDRA_OCR_THREADS:-4}
+      RECEIPT_OCR_TOKEN: ${RECEIPT_OCR_TOKEN:-}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json, os, urllib.request; health = json.load(urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('OCR_PORT', '8060') + '/healthz', timeout=3)); raise SystemExit(0 if health.get('ready') else 1)"
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
       retries: 3

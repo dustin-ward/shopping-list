@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { readConfig } from '../src/lib/server/config.js';
+import { createDirectoryArchive } from '../src/lib/server/db/archive.js';
 import { createDatabaseBackup } from '../src/lib/server/db/backup.js';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -23,15 +24,31 @@ async function main() {
   );
   mkdirSync(backupDirectory, { recursive: true });
   const timestamp = new Date().toISOString().replace(/[:.]/gu, '-');
-  const destination = join(
-    backupDirectory,
-    `shopping-list-${timestamp}-${randomUUID()}.sqlite`,
-  );
+  // One run id names both halves of the backup, so a restore pairs them.
+  const runId = `${timestamp}-${randomUUID()}`;
+
+  // The database first: with images retained (the capture-first default) this
+  // order guarantees every image the backed-up rows reference is also in the
+  // archive, while a spare image is harmless.
+  const destination = join(backupDirectory, `shopping-list-${runId}.sqlite`);
   await createDatabaseBackup(databasePath, destination);
   console.info(`Verified SQLite backup created: ${destination}`);
+
+  const imagesDestination = join(
+    backupDirectory,
+    `shopping-list-${runId}-receipts.tar`,
+  );
+  const images = createDirectoryArchive(
+    config.receiptStorageDir,
+    imagesDestination,
+  );
+  console.info(
+    `Receipt image archive created: ${imagesDestination} ` +
+      `(${images.fileCount} images, ${images.totalBytes} bytes)`,
+  );
 }
 
 main().catch((error) => {
-  console.error('Database backup failed:', error);
+  console.error('Backup failed:', error);
   process.exitCode = 1;
 });

@@ -1,0 +1,46 @@
+{
+  "pages": [
+    {
+      "lines": [
+        { "box": [12, 20, 260, 38], "text": "CORNER MARKET", "conf": 0.99 },
+        { "box": [12, 42, 300, 58], "text": "123 MAIN ST", "conf": 0.97 },
+        { "box": [12, 62, 240, 78], "text": "TEL 555-0100", "conf": 0.95 },
+        { "box": [12, 86, 300, 102], "text": "2026-10-17 14:32", "conf": 0.94 },
+        { "box": [12, 124, 360, 140], "text": "MILK 2% 1L", "conf": 0.96 },
+        { "box": [380, 124, 452, 140], "text": "3.49", "conf": 0.98 },
+        { "box": [12, 148, 360, 164], "text": "SOURDOUGH BREAD", "conf": 0.97 },
+        { "box": [380, 148, 452, 164], "text": "4.99", "conf": 0.98 },
+        { "box": [12, 172, 360, 188], "text": "GALA APPLES", "conf": 0.95 },
+        { "box": [380, 172, 452, 188], "text": "2.58", "conf": 0.98 },
+        { "box": [12, 196, 360, 212], "text": "CHEDDAR CHEESE", "conf": 0.96 },
+        { "box": [380, 196, 452, 212], "text": "6.49", "conf": 0.98 },
+        { "box": [12, 236, 360, 252], "text": "SUBTOTAL", "conf": 0.97 },
+        { "box": [380, 236, 452, 252], "text": "17.55", "conf": 0.98 },
+        { "box": [12, 260, 360, 276], "text": "TAX", "conf": 0.97 },
+        { "box": [380, 260, 452, 276], "text": "1.05", "conf": 0.98 },
+        { "box": [12, 284, 360, 300], "text": "TOTAL", "conf": 0.98 },
+        { "box": [380, 284, 452, 300], "text": "18.60", "conf": 0.98 },
+        { "box": [12, 308, 360, 324], "text": "VISA ****1234", "conf": 0.93 },
+        { "box": [380, 308, 452, 324], "text": "18.60", "conf": 0.97 },
+        { "box": [12, 340, 360, 356], "text": "THANK YOU", "conf": 0.96 }
+      ],
+      "blocks": [
+        {
+          "label": "text",
+          "bbox": [12, 20, 300, 102],
+          "text": "CORNER MARKET"
+        },
+        { "label": "text", "bbox": [12, 124, 452, 212], "text": "MILK 2% 1L" },
+        { "label": "text", "bbox": [12, 236, 452, 324], "text": "SUBTOTAL" }
+      ],
+      "rotation": 0,
+      "skew": 0.0,
+      "source": "stub"
+    }
+  ],
+  "engine": {
+    "name": "stub",
+    "model_tag": "stub-ocr-fixture",
+    "package_version": "0"
+  }
+}
